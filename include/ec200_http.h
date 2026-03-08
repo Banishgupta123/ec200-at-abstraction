@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_HTTP HTTP Client
+ *  @brief Configure context, set URL, perform GET/POST, read response body (AT+QHTTP*).
+ *  @{
+ */
+
 /**
  * @brief Configure the HTTP context (AT+QHTTPCFG).
  *
@@ -96,6 +101,8 @@ ec200_status_t ec200_http_read(ec200_handle_t *h,
  * @return   EC200_OK or an error code.
  */
 ec200_status_t ec200_http_stop(ec200_handle_t *h);
+
+/** @} */ /* EC200_HTTP */
 
 #ifdef __cplusplus
 }

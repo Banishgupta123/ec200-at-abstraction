@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_GNSS GNSS / GPS
+ *  @brief Start/stop GNSS engine, read location fix, configure NMEA output (AT+QGPS*).
+ *  @{
+ */
+
 /**
  * @brief Turn the GNSS engine on (AT+QGPS=1).
  *
@@ -61,6 +66,8 @@ ec200_status_t ec200_gnss_get_location(ec200_handle_t       *h,
  */
 ec200_status_t ec200_gnss_set_nmea_output(ec200_handle_t *h,
                                           uint8_t         nmea_types);
+
+/** @} */ /* EC200_GNSS */
 
 #ifdef __cplusplus
 }

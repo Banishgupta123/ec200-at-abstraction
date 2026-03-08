@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_Network Network Registration and Operators
+ *  @brief CS/GPRS/LTE registration, signal quality, and operator selection.
+ *  @{
+ */
+
 /**
  * @brief Query CS (circuit-switched) network registration (AT+CREG?).
  *
@@ -111,6 +116,8 @@ ec200_status_t ec200_net_set_operator(ec200_handle_t    *h,
  */
 ec200_status_t ec200_net_wait_registered(ec200_handle_t *h,
                                          uint32_t        timeout_ms);
+
+/** @} */ /* EC200_Network */
 
 #ifdef __cplusplus
 }

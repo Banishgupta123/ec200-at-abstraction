@@ -17,6 +17,98 @@
  * 4. Use the domain API (ec200_sim_*, ec200_network_*, ec200_sms_*, …).
  */
 
+/**
+ * @mainpage EC200 AT Abstraction Library
+ *
+ * @section intro_sec Introduction
+ *
+ * A platform-independent C99 abstraction layer for **Quectel EC200U** cellular
+ * modules.  The library wraps the full AT command set into a clean, type-safe
+ * API with no dependency on any specific MCU or RTOS.
+ *
+ * @section arch_sec Architecture
+ *
+ * @code
+ *  ┌────────────────────────────────────────┐
+ *  │         Your Application Code          │
+ *  └──────────────────┬─────────────────────┘
+ *                     │  ec200_*.h API
+ *  ┌──────────────────▼─────────────────────┐
+ *  │      EC200 AT Abstraction Library      │
+ *  │  (ec200.h / sim / network / sms / …)  │
+ *  └──────────────────┬─────────────────────┘
+ *                     │  write / read / delay callbacks
+ *  ┌──────────────────▼─────────────────────┐
+ *  │  Your Platform Wrapper (HAL / RTOS)    │
+ *  └──────────────────┬─────────────────────┘
+ *                     │  UART hardware
+ *  ┌──────────────────▼─────────────────────┐
+ *  │         Quectel EC200U Module          │
+ *  └────────────────────────────────────────┘
+ * @endcode
+ *
+ * @section qs_sec Quick Start
+ *
+ * @subsection qs1 1. Implement the platform wrapper
+ * @code
+ * static int my_uart_write(const uint8_t *data, uint16_t len, void *ctx) {
+ *     return HAL_UART_Transmit(&huart2, data, len, 1000) == HAL_OK ? len : -1;
+ * }
+ * static int my_uart_read(uint8_t *data, uint16_t len,
+ *                         uint32_t timeout_ms, void *ctx) {
+ *     return uart_ring_buf_read(data, len, timeout_ms);
+ * }
+ * static void my_delay_ms(uint32_t ms, void *ctx) { HAL_Delay(ms); }
+ * @endcode
+ *
+ * @subsection qs2 2. Initialise the library
+ * @code
+ * ec200_handle_t modem;
+ * ec200_status_t st = ec200_init(&modem, my_uart_write, my_uart_read,
+ *                                my_delay_ms, NULL);
+ * @endcode
+ *
+ * @subsection qs3 3. Use the API
+ * @code
+ * ec200_set_echo(&modem, false);
+ * ec200_net_wait_registered(&modem, 60000);
+ * ec200_pdp_context_t pdp = { .cid=1, .type=EC200_PDP_TYPE_IP, .apn="internet" };
+ * ec200_data_connect(&modem, &pdp);
+ * @endcode
+ *
+ * @section modules_sec API Modules
+ *
+ * | Module             | Header              | Description                        |
+ * |--------------------|---------------------|------------------------------------|
+ * | @ref EC200_Core    | ec200.h             | Init, IMEI, firmware, echo, CMEE   |
+ * | @ref EC200_Types   | ec200_types.h       | Types, enums, structs, constants   |
+ * | @ref EC200_AT      | ec200_at.h          | Low-level AT transport             |
+ * | @ref EC200_SIM     | ec200_sim.h         | SIM PIN/IMSI/ICCID                 |
+ * | @ref EC200_Network | ec200_network.h     | Registration, signal, operator     |
+ * | @ref EC200_SMS     | ec200_sms.h         | Send, read, list, delete SMS       |
+ * | @ref EC200_Data    | ec200_data.h        | PDP context / data connection      |
+ * | @ref EC200_TCPIP   | ec200_tcpip.h       | TCP/UDP sockets                    |
+ * | @ref EC200_HTTP    | ec200_http.h        | HTTP client                        |
+ * | @ref EC200_MQTT    | ec200_mqtt.h        | MQTT client                        |
+ * | @ref EC200_GNSS    | ec200_gnss.h        | GNSS/GPS location                  |
+ * | @ref EC200_Power   | ec200_power.h       | Power management                   |
+ *
+ * @section err_sec Error Handling
+ *
+ * Every API function returns ::ec200_status_t.  Use ec200_status_str() to
+ * convert a code to a human-readable string.  After EC200_ERR_CME or
+ * EC200_ERR_CMS, call ec200_at_last_cme_error() / ec200_at_last_cms_error()
+ * to retrieve the raw numeric error code from the module.
+ *
+ * @section build_sec Building
+ * @code
+ * mkdir build && cd build
+ * cmake ..
+ * cmake --build .
+ * ctest
+ * @endcode
+ */
+
 #ifndef EC200_H
 #define EC200_H
 
@@ -35,6 +127,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** @defgroup EC200_Core Core API
+ *  @brief Library initialisation, module identification, and utility functions.
+ *  @{
+ */
 
 /* -------------------------------------------------------------------------
  * Library version
@@ -165,6 +262,8 @@ void ec200_set_urc_handler(ec200_handle_t       *h,
  * @return        Pointer to a static string (never NULL).
  */
 const char *ec200_status_str(ec200_status_t status);
+
+/** @} */ /* EC200_Core */
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,1508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>EC200 AT Abstraction Library — API Reference</title>
+<style>
+/* ---- reset / base ---- */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
+     "Helvetica Neue",Arial,sans-serif;background:#f8f9fa;color:#212529;
+     display:flex;min-height:100vh}
+
+/* ---- sidebar ---- */
+nav#sidebar{width:260px;min-width:260px;background:#2c3e50;color:#ecf0f1;
+            position:sticky;top:0;height:100vh;overflow-y:auto;
+            display:flex;flex-direction:column}
+nav#sidebar .brand{padding:24px 20px 12px;font-size:1rem;font-weight:700;
+                   color:#fff;border-bottom:1px solid #34495e;line-height:1.4}
+nav#sidebar .brand small{display:block;font-size:.75rem;font-weight:400;
+                          color:#95a5a6;margin-top:4px}
+nav#sidebar .search-box{padding:10px 14px;border-bottom:1px solid #34495e}
+nav#sidebar .search-box input{width:100%;padding:6px 10px;border:none;
+  border-radius:4px;font-size:.85rem;background:#3d5166;color:#ecf0f1;
+  outline:none}
+nav#sidebar .search-box input::placeholder{color:#95a5a6}
+nav#sidebar ul{list-style:none;padding:8px 0}
+nav#sidebar ul li a{display:block;padding:7px 20px;color:#bdc3c7;
+                    text-decoration:none;font-size:.875rem;
+                    border-left:3px solid transparent;transition:.15s}
+nav#sidebar ul li a:hover,nav#sidebar ul li a.active{color:#fff;
+  background:#34495e;border-left-color:#3498db}
+
+/* ---- main content ---- */
+main{flex:1;overflow-y:auto}
+.content{max-width:900px;margin:0 auto;padding:40px 40px 80px}
+
+/* ---- typography ---- */
+h1{font-size:2rem;font-weight:700;color:#2c3e50;margin-bottom:8px}
+h2{font-size:1.4rem;font-weight:700;color:#2c3e50;margin:40px 0 12px;
+    padding-bottom:6px;border-bottom:2px solid #dee2e6}
+h3{font-size:1.1rem;font-weight:600;color:#1a252f;margin:28px 0 8px}
+h4{font-size:1rem;font-weight:600;color:#2c3e50;margin:20px 0 6px}
+p{margin:10px 0;line-height:1.7}
+a{color:#2980b9;text-decoration:none}
+a:hover{text-decoration:underline}
+hr{border:none;border-top:1px solid #dee2e6;margin:32px 0}
+
+/* ---- code ---- */
+pre{background:#1e2d3d;color:#abb2bf;border-radius:6px;
+     padding:18px 20px;overflow-x:auto;margin:14px 0;
+     font-size:.85rem;line-height:1.6}
+code{font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+      font-size:.875em}
+:not(pre) > code{background:#e8edf2;color:#c0392b;padding:2px 5px;
+                  border-radius:3px}
+
+/* ---- tables ---- */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:.875rem}
+thead{background:#2c3e50;color:#fff}
+thead th{padding:10px 14px;text-align:left;font-weight:600}
+tbody tr:nth-child(odd){background:#f1f3f5}
+tbody tr:hover{background:#e3eaf1}
+td,th{padding:8px 14px;border:1px solid #dee2e6;vertical-align:top}
+
+/* ---- badges / back-to-top ---- */
+#back-to-top{position:fixed;bottom:28px;right:28px;width:42px;height:42px;
+              border-radius:50%;background:#2980b9;color:#fff;border:none;
+              font-size:1.2rem;cursor:pointer;display:none;
+              align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+#back-to-top.show{display:flex}
+
+/* ---- responsive ---- */
+@media(max-width:768px){
+  nav#sidebar{display:none}
+  .content{padding:20px}
+}
+</style>
+</head>
+<body>
+
+<nav id="sidebar">
+  <div class="brand">
+    EC200 Library
+    <small>API Reference v1.0.0</small>
+  </div>
+  <div class="search-box">
+    <input type="search" id="nav-search" placeholder="Search sections…" aria-label="Search sections"/>
+  </div>
+  <ul id="nav-list">
+    <li><a href="#table-of-contents">Table of Contents</a></li>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#quick-start">Quick Start</a></li>
+<li><a href="#types-constants">Types &amp; Constants</a></li>
+<li><a href="#core-api">Core API</a></li>
+<li><a href="#at-transport-layer">AT Transport Layer</a></li>
+<li><a href="#sim-card-management">SIM Card Management</a></li>
+<li><a href="#network-registration">Network Registration</a></li>
+<li><a href="#sms-messaging">SMS Messaging</a></li>
+<li><a href="#pdp-data-connection">PDP / Data Connection</a></li>
+<li><a href="#tcpip-sockets">TCP/IP Sockets</a></li>
+<li><a href="#http-client">HTTP Client</a></li>
+<li><a href="#mqtt-client">MQTT Client</a></li>
+<li><a href="#gnss-gps">GNSS / GPS</a></li>
+<li><a href="#power-management">Power Management</a></li>
+<li><a href="#error-handling">Error Handling</a></li>
+  </ul>
+</nav>
+
+<main id="main">
+  <div class="content">
+    <h1 id="ec200-at-abstraction-library-api-reference">EC200 AT Abstraction Library — API Reference</h1>
+<p><strong>Version:</strong> 1.0.0<br />
+<strong>Language:</strong> C99<br />
+<strong>Target:</strong> Quectel EC200U cellular module<br />
+<strong>Include:</strong> <code>#include "ec200.h"</code></p>
+<hr />
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#quick-start">Quick Start</a></li>
+<li><a href="#types--constants">Types &amp; Constants</a></li>
+<li><a href="#buffer-size-constants">Buffer-Size Constants</a></li>
+<li><a href="#status-codes">Status Codes</a></li>
+<li><a href="#callback-types">Callback Types</a></li>
+<li><a href="#network-types">Network Types</a></li>
+<li><a href="#sim-types">SIM Types</a></li>
+<li><a href="#sms-types">SMS Types</a></li>
+<li><a href="#pdp--data-types">PDP / Data Types</a></li>
+<li><a href="#tcpip-types">TCP/IP Types</a></li>
+<li><a href="#http-types">HTTP Types</a></li>
+<li><a href="#mqtt-types">MQTT Types</a></li>
+<li><a href="#gnss-types">GNSS Types</a></li>
+<li><a href="#power-types">Power Types</a></li>
+<li><a href="#library-handle">Library Handle</a></li>
+<li><a href="#core-api">Core API</a> — <code>ec200.h</code></li>
+<li><a href="#at-transport-layer">AT Transport Layer</a> — <code>ec200_at.h</code></li>
+<li><a href="#sim-card-management">SIM Card Management</a> — <code>ec200_sim.h</code></li>
+<li><a href="#network-registration">Network Registration</a> — <code>ec200_network.h</code></li>
+<li><a href="#sms-messaging">SMS Messaging</a> — <code>ec200_sms.h</code></li>
+<li><a href="#pdp--data-connection">PDP / Data Connection</a> — <code>ec200_data.h</code></li>
+<li><a href="#tcpip-sockets">TCP/IP Sockets</a> — <code>ec200_tcpip.h</code></li>
+<li><a href="#http-client">HTTP Client</a> — <code>ec200_http.h</code></li>
+<li><a href="#mqtt-client">MQTT Client</a> — <code>ec200_mqtt.h</code></li>
+<li><a href="#gnss--gps">GNSS / GPS</a> — <code>ec200_gnss.h</code></li>
+<li><a href="#power-management">Power Management</a> — <code>ec200_power.h</code></li>
+<li><a href="#error-handling">Error Handling</a></li>
+</ol>
+<hr />
+<h2 id="overview">Overview</h2>
+<p>The EC200 AT Abstraction Library wraps the full Quectel EC200U AT command set
+into a clean, type-safe C99 API.  It has <strong>no dependency</strong> on any specific MCU
+or RTOS — the user supplies three lightweight callbacks (UART write, UART read,
+millisecond delay) and the library handles all command framing, response
+parsing, and error propagation.</p>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code> ┌────────────────────────────────────────┐
+ │         Your Application Code          │
+ └──────────────────┬─────────────────────┘
+                    │  ec200_*.h API
+ ┌──────────────────▼─────────────────────┐
+ │      EC200 AT Abstraction Library      │
+ └──────────────────┬─────────────────────┘
+                    │  write / read / delay callbacks
+ ┌──────────────────▼─────────────────────┐
+ │  Your Platform Wrapper (HAL / RTOS)    │
+ └──────────────────┬─────────────────────┘
+                    │  UART hardware
+ ┌──────────────────▼─────────────────────┐
+ │         Quectel EC200U Module          │
+ └────────────────────────────────────────┘
+</code></pre></div>
+
+<hr />
+<h2 id="quick-start">Quick Start</h2>
+<h3 id="1-implement-the-platform-wrapper">1 — Implement the platform wrapper</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020">#include</span><span style="color: #bbbbbb"> </span><span style="color: #60a0b0; font-style: italic">&quot;ec200.h&quot;</span>
+
+<span style="color: #007020; font-weight: bold">static</span><span style="color: #bbbbbb"> </span><span style="color: #902000">int</span><span style="color: #bbbbbb"> </span><span style="color: #06287e">my_uart_write</span>(<span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>data,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb"> </span>len,<span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>ctx)
+{
+<span style="color: #bbbbbb">    </span><span style="color: #60a0b0; font-style: italic">// e.g. STM32: return HAL_UART_Transmit(&amp;huart2, data, len, 1000) == HAL_OK ? len : -1;</span>
+<span style="color: #bbbbbb">    </span><span style="color: #007020; font-weight: bold">return</span><span style="color: #bbbbbb"> </span>(<span style="color: #902000">int</span>)fwrite(data,<span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,<span style="color: #bbbbbb"> </span>len,<span style="color: #bbbbbb"> </span>stdout);
+}
+
+<span style="color: #007020; font-weight: bold">static</span><span style="color: #bbbbbb"> </span><span style="color: #902000">int</span><span style="color: #bbbbbb"> </span><span style="color: #06287e">my_uart_read</span>(<span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>data,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb"> </span>len,
+<span style="color: #bbbbbb">                        </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb"> </span>timeout_ms,<span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>ctx)
+{
+<span style="color: #bbbbbb">    </span><span style="color: #60a0b0; font-style: italic">// e.g. STM32 DMA ring-buffer: return uart_ring_buf_read(data, len, timeout_ms);</span>
+<span style="color: #bbbbbb">    </span>(<span style="color: #902000">void</span>)data;<span style="color: #bbbbbb"> </span>(<span style="color: #902000">void</span>)len;<span style="color: #bbbbbb"> </span>(<span style="color: #902000">void</span>)timeout_ms;<span style="color: #bbbbbb"> </span>(<span style="color: #902000">void</span>)ctx;
+<span style="color: #bbbbbb">    </span><span style="color: #007020; font-weight: bold">return</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>;
+}
+
+<span style="color: #007020; font-weight: bold">static</span><span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #06287e">my_delay_ms</span>(<span style="color: #902000">uint32_t</span><span style="color: #bbbbbb"> </span>ms,<span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>ctx)
+{
+<span style="color: #bbbbbb">    </span><span style="color: #60a0b0; font-style: italic">// e.g. STM32: HAL_Delay(ms);  FreeRTOS: vTaskDelay(pdMS_TO_TICKS(ms));</span>
+<span style="color: #bbbbbb">    </span>(<span style="color: #902000">void</span>)ctx;
+}
+</code></pre></div>
+
+<h3 id="2-initialise-the-library">2 — Initialise the library</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_handle_t<span style="color: #bbbbbb"> </span>modem;
+ec200_status_t<span style="color: #bbbbbb"> </span>st<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span>ec200_init(<span style="color: #666666">&amp;</span>modem,
+<span style="color: #bbbbbb">                               </span>my_uart_write,
+<span style="color: #bbbbbb">                               </span>my_uart_read,
+<span style="color: #bbbbbb">                               </span>my_delay_ms,
+<span style="color: #bbbbbb">                               </span><span style="color: #007020">NULL</span><span style="color: #bbbbbb"> </span><span style="color: #60a0b0; font-style: italic">/* optional user context */</span>);
+<span style="color: #007020; font-weight: bold">if</span><span style="color: #bbbbbb"> </span>(st<span style="color: #bbbbbb"> </span><span style="color: #666666">!=</span><span style="color: #bbbbbb"> </span>EC200_OK)<span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>printf(<span style="color: #4070a0">&quot;init failed: %s</span><span style="color: #4070a0; font-weight: bold">\n</span><span style="color: #4070a0">&quot;</span>,<span style="color: #bbbbbb"> </span>ec200_status_str(st));
+}
+ec200_set_echo(<span style="color: #666666">&amp;</span>modem,<span style="color: #bbbbbb"> </span><span style="color: #007020">false</span>);
+ec200_set_cmee(<span style="color: #666666">&amp;</span>modem,<span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>);<span style="color: #bbbbbb">   </span><span style="color: #60a0b0; font-style: italic">// verbose error strings</span>
+</code></pre></div>
+
+<h3 id="3-connect-and-use-the-network">3 — Connect and use the network</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #60a0b0; font-style: italic">// Wait for LTE registration (60 s timeout)</span>
+ec200_net_wait_registered(<span style="color: #666666">&amp;</span>modem,<span style="color: #bbbbbb"> </span><span style="color: #40a070">60000</span>);
+
+<span style="color: #60a0b0; font-style: italic">// Activate PDP context</span>
+ec200_pdp_context_t<span style="color: #bbbbbb"> </span>pdp<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>.cid<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,
+<span style="color: #bbbbbb">    </span>.type<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span>EC200_PDP_TYPE_IP,
+<span style="color: #bbbbbb">    </span>.apn<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #4070a0">&quot;internet&quot;</span>,
+};
+ec200_data_connect(<span style="color: #666666">&amp;</span>modem,<span style="color: #bbbbbb"> </span><span style="color: #666666">&amp;</span>pdp);
+printf(<span style="color: #4070a0">&quot;IP: %s</span><span style="color: #4070a0; font-weight: bold">\n</span><span style="color: #4070a0">&quot;</span>,<span style="color: #bbbbbb"> </span>pdp.ip_addr);
+
+<span style="color: #60a0b0; font-style: italic">// HTTP GET</span>
+ec200_http_set_context(<span style="color: #666666">&amp;</span>modem,<span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>);
+ec200_http_set_url(<span style="color: #666666">&amp;</span>modem,<span style="color: #bbbbbb"> </span><span style="color: #4070a0">&quot;http://example.com/api&quot;</span>);
+ec200_http_response_t<span style="color: #bbbbbb"> </span>resp;
+ec200_http_get(<span style="color: #666666">&amp;</span>modem,<span style="color: #bbbbbb"> </span><span style="color: #40a070">30000</span>,<span style="color: #bbbbbb"> </span><span style="color: #666666">&amp;</span>resp);
+
+<span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>body[<span style="color: #40a070">512</span>];
+<span style="color: #902000">uint32_t</span><span style="color: #bbbbbb"> </span>body_len;
+ec200_http_read(<span style="color: #666666">&amp;</span>modem,<span style="color: #bbbbbb"> </span>body,<span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">sizeof</span>(body),<span style="color: #bbbbbb"> </span><span style="color: #666666">&amp;</span>body_len,<span style="color: #bbbbbb"> </span><span style="color: #40a070">10000</span>);
+</code></pre></div>
+
+<hr />
+<h2 id="types-constants">Types &amp; Constants</h2>
+<h3 id="buffer-size-constants">Buffer-Size Constants</h3>
+<p>All defined in <code>ec200_types.h</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Constant</th>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EC200_RX_BUFFER_SIZE</code></td>
+<td>1024</td>
+<td>Receive ring-buffer size (bytes)</td>
+</tr>
+<tr>
+<td><code>EC200_TX_BUFFER_SIZE</code></td>
+<td>512</td>
+<td>Transmit scratch-buffer size (bytes)</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_OPERATOR_LEN</code></td>
+<td>32</td>
+<td>Max operator name length</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_PHONE_NUM_LEN</code></td>
+<td>20</td>
+<td>Max phone-number string length</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_SMS_TEXT_LEN</code></td>
+<td>160</td>
+<td>Max SMS text body length</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_IP_ADDR_LEN</code></td>
+<td>46</td>
+<td>Max IP address string length</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_IMEI_LEN</code></td>
+<td>16</td>
+<td>IMEI string length (+NUL)</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_IMSI_LEN</code></td>
+<td>16</td>
+<td>IMSI string length (+NUL)</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_ICCID_LEN</code></td>
+<td>21</td>
+<td>ICCID string length (+NUL)</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_FW_VER_LEN</code></td>
+<td>64</td>
+<td>Firmware version string length</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_URL_LEN</code></td>
+<td>256</td>
+<td>Max URL length for HTTP</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_TOPIC_LEN</code></td>
+<td>128</td>
+<td>Max MQTT topic length</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_PAYLOAD_LEN</code></td>
+<td>1460</td>
+<td>Max MQTT/TCP payload length</td>
+</tr>
+<tr>
+<td><code>EC200_MAX_CONNECTIONS</code></td>
+<td>12</td>
+<td>Max simultaneous TCP connections</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="status-codes">Status Codes</h3>
+<p><code>ec200_status_t</code> — returned by every API function.</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td><code>EC200_OK</code></td>
+<td>Operation succeeded</td>
+</tr>
+<tr>
+<td><code>-1</code></td>
+<td><code>EC200_ERR_TIMEOUT</code></td>
+<td>No response within the allowed timeout</td>
+</tr>
+<tr>
+<td><code>-2</code></td>
+<td><code>EC200_ERR_IO</code></td>
+<td>Underlying UART send/receive failure</td>
+</tr>
+<tr>
+<td><code>-3</code></td>
+<td><code>EC200_ERR_PARSE</code></td>
+<td>Response could not be parsed</td>
+</tr>
+<tr>
+<td><code>-4</code></td>
+<td><code>EC200_ERR_CME</code></td>
+<td>Module returned +CME ERROR</td>
+</tr>
+<tr>
+<td><code>-5</code></td>
+<td><code>EC200_ERR_CMS</code></td>
+<td>Module returned +CMS ERROR</td>
+</tr>
+<tr>
+<td><code>-6</code></td>
+<td><code>EC200_ERR_BUSY</code></td>
+<td>Resource is currently in use</td>
+</tr>
+<tr>
+<td><code>-7</code></td>
+<td><code>EC200_ERR_PARAM</code></td>
+<td>Invalid function argument</td>
+</tr>
+<tr>
+<td><code>-8</code></td>
+<td><code>EC200_ERR_NOT_READY</code></td>
+<td>Module not yet initialised</td>
+</tr>
+<tr>
+<td><code>-9</code></td>
+<td><code>EC200_ERR_OVERFLOW</code></td>
+<td>Internal buffer overflow</td>
+</tr>
+<tr>
+<td><code>-10</code></td>
+<td><code>EC200_ERR_UNSUPPORTED</code></td>
+<td>Feature not available on this firmware</td>
+</tr>
+<tr>
+<td><code>-99</code></td>
+<td><code>EC200_ERR_UNKNOWN</code></td>
+<td>Unclassified error</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="callback-types">Callback Types</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #60a0b0; font-style: italic">// Write len bytes to UART; return bytes written or &lt;0 on error</span>
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #902000">int</span><span style="color: #bbbbbb">  </span>(<span style="color: #666666">*</span>ec200_write_fn)(<span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>data,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb"> </span>len,<span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>user_ctx);
+
+<span style="color: #60a0b0; font-style: italic">// Read up to len bytes, waiting at most timeout_ms; return bytes read or &lt;0</span>
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #902000">int</span><span style="color: #bbbbbb">  </span>(<span style="color: #666666">*</span>ec200_read_fn)(<span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>data,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb"> </span>len,
+<span style="color: #bbbbbb">                               </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb"> </span>timeout_ms,<span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>user_ctx);
+
+<span style="color: #60a0b0; font-style: italic">// Block for ms milliseconds</span>
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span>(<span style="color: #666666">*</span>ec200_delay_fn)(<span style="color: #902000">uint32_t</span><span style="color: #bbbbbb"> </span>ms,<span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>user_ctx);
+
+<span style="color: #60a0b0; font-style: italic">// URC callback — invoked when an unsolicited line arrives</span>
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span>(<span style="color: #666666">*</span>ec200_urc_handler_fn)(<span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>urc,<span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>user_ctx);
+
+<span style="color: #60a0b0; font-style: italic">// MQTT received-message callback</span>
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span>(<span style="color: #666666">*</span>ec200_mqtt_msg_fn)(<span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span>ec200_mqtt_message_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>msg,<span style="color: #bbbbbb"> </span><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>user_ctx);
+</code></pre></div>
+
+<hr />
+<h3 id="network-types">Network Types</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #60a0b0; font-style: italic">// AT+CREG / AT+CGREG / AT+CEREG registration status</span>
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_REG_NOT_REGISTERED<span style="color: #bbbbbb">     </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,
+<span style="color: #bbbbbb">    </span>EC200_REG_REGISTERED_HOME<span style="color: #bbbbbb">    </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,
+<span style="color: #bbbbbb">    </span>EC200_REG_SEARCHING<span style="color: #bbbbbb">          </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,
+<span style="color: #bbbbbb">    </span>EC200_REG_DENIED<span style="color: #bbbbbb">             </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">3</span>,
+<span style="color: #bbbbbb">    </span>EC200_REG_UNKNOWN<span style="color: #bbbbbb">            </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">4</span>,
+<span style="color: #bbbbbb">    </span>EC200_REG_REGISTERED_ROAMING<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">5</span>,
+}<span style="color: #bbbbbb"> </span>ec200_reg_status_t;
+
+<span style="color: #60a0b0; font-style: italic">// AT+COPS mode</span>
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_COPS_MODE_AUTOMATIC<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,
+<span style="color: #bbbbbb">    </span>EC200_COPS_MODE_MANUAL<span style="color: #bbbbbb">     </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,
+<span style="color: #bbbbbb">    </span>EC200_COPS_MODE_DEREGISTER<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,
+<span style="color: #bbbbbb">    </span>EC200_COPS_MODE_SET_FORMAT<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">3</span>,
+<span style="color: #bbbbbb">    </span>EC200_COPS_MODE_MANUAL_AUTO<span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">4</span>,
+}<span style="color: #bbbbbb"> </span>ec200_cops_mode_t;
+
+<span style="color: #60a0b0; font-style: italic">// AT+COPS format</span>
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_COPS_FMT_LONG_NAME<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,
+<span style="color: #bbbbbb">    </span>EC200_COPS_FMT_SHORT_NAME<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,
+<span style="color: #bbbbbb">    </span>EC200_COPS_FMT_NUMERIC<span style="color: #bbbbbb">    </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,
+}<span style="color: #bbbbbb"> </span>ec200_cops_fmt_t;
+
+<span style="color: #60a0b0; font-style: italic">// Access technology</span>
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_ACT_GSM<span style="color: #bbbbbb">        </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,<span style="color: #bbbbbb">  </span>EC200_ACT_UTRAN<span style="color: #bbbbbb">      </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,
+<span style="color: #bbbbbb">    </span>EC200_ACT_GSM_EGPRS<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">3</span>,<span style="color: #bbbbbb">  </span>EC200_ACT_LTE<span style="color: #bbbbbb">        </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">7</span>,
+<span style="color: #bbbbbb">    </span>EC200_ACT_UNKNOWN<span style="color: #bbbbbb">    </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0xFF</span>,
+<span style="color: #bbbbbb">    </span><span style="color: #60a0b0; font-style: italic">// ... (see ec200_types.h for full list)</span>
+}<span style="color: #bbbbbb"> </span>ec200_act_t;
+
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">struct</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>ec200_cops_mode_t<span style="color: #bbbbbb"> </span>mode;
+<span style="color: #bbbbbb">    </span>ec200_cops_fmt_t<span style="color: #bbbbbb">  </span>format;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">              </span>oper[EC200_MAX_OPERATOR_LEN];
+<span style="color: #bbbbbb">    </span>ec200_act_t<span style="color: #bbbbbb">       </span>act;
+}<span style="color: #bbbbbb"> </span>ec200_operator_info_t;
+
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">struct</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span><span style="color: #902000">int8_t</span><span style="color: #bbbbbb">  </span>rssi;<span style="color: #bbbbbb">   </span><span style="color: #60a0b0; font-style: italic">// RSSI in dBm (-113 to -51, 0 = unknown)</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>ber;<span style="color: #bbbbbb">    </span><span style="color: #60a0b0; font-style: italic">// Bit error rate (0-7, 99 = unknown)</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>rsrp;<span style="color: #bbbbbb">   </span><span style="color: #60a0b0; font-style: italic">// LTE RSRP 0-96, 255 = unknown</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">int8_t</span><span style="color: #bbbbbb">  </span>sinr;<span style="color: #bbbbbb">   </span><span style="color: #60a0b0; font-style: italic">// LTE SINR in dB</span>
+}<span style="color: #bbbbbb"> </span>ec200_signal_quality_t;
+</code></pre></div>
+
+<hr />
+<h3 id="sim-types">SIM Types</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_SIM_READY<span style="color: #bbbbbb">         </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,
+<span style="color: #bbbbbb">    </span>EC200_SIM_PIN_REQUIRED<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,
+<span style="color: #bbbbbb">    </span>EC200_SIM_PUK_REQUIRED<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,
+<span style="color: #bbbbbb">    </span>EC200_SIM_PIN2_REQUIRED<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">3</span>,
+<span style="color: #bbbbbb">    </span>EC200_SIM_PUK2_REQUIRED<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">4</span>,
+<span style="color: #bbbbbb">    </span>EC200_SIM_NOT_INSERTED<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">5</span>,
+<span style="color: #bbbbbb">    </span>EC200_SIM_UNKNOWN<span style="color: #bbbbbb">       </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0xFF</span>,
+}<span style="color: #bbbbbb"> </span>ec200_sim_status_t;
+</code></pre></div>
+
+<hr />
+<h3 id="sms-types">SMS Types</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{<span style="color: #bbbbbb"> </span>EC200_SMS_FORMAT_PDU<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,<span style="color: #bbbbbb"> </span>EC200_SMS_FORMAT_TEXT<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span><span style="color: #bbbbbb"> </span>}<span style="color: #bbbbbb"> </span>ec200_sms_format_t;
+
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_SMS_STAT_REC_UNREAD<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,<span style="color: #bbbbbb"> </span>EC200_SMS_STAT_REC_READ<span style="color: #bbbbbb">   </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,
+<span style="color: #bbbbbb">    </span>EC200_SMS_STAT_STO_UNSENT<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,<span style="color: #bbbbbb"> </span>EC200_SMS_STAT_STO_SENT<span style="color: #bbbbbb">   </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">3</span>,
+<span style="color: #bbbbbb">    </span>EC200_SMS_STAT_ALL<span style="color: #bbbbbb">        </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">4</span>,
+}<span style="color: #bbbbbb"> </span>ec200_sms_stat_t;
+
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">struct</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span><span style="color: #902000">int</span><span style="color: #bbbbbb">              </span>index;
+<span style="color: #bbbbbb">    </span>ec200_sms_stat_t<span style="color: #bbbbbb"> </span>stat;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">             </span>sender[EC200_MAX_PHONE_NUM_LEN];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">             </span>timestamp[<span style="color: #40a070">24</span>];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">             </span>text[EC200_MAX_SMS_TEXT_LEN<span style="color: #bbbbbb"> </span><span style="color: #666666">+</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>];
+}<span style="color: #bbbbbb"> </span>ec200_sms_message_t;
+</code></pre></div>
+
+<hr />
+<h3 id="pdp-data-types">PDP / Data Types</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_PDP_TYPE_IP<span style="color: #bbbbbb">    </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,
+<span style="color: #bbbbbb">    </span>EC200_PDP_TYPE_IPV6<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,
+<span style="color: #bbbbbb">    </span>EC200_PDP_TYPE_IPV4V6<span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,
+}<span style="color: #bbbbbb"> </span>ec200_pdp_type_t;
+
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">struct</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">          </span>cid;<span style="color: #bbbbbb">                          </span><span style="color: #60a0b0; font-style: italic">// Context ID (1-16)</span>
+<span style="color: #bbbbbb">    </span>ec200_pdp_type_t<span style="color: #bbbbbb"> </span>type;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">             </span>apn[<span style="color: #40a070">64</span>];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">             </span>username[<span style="color: #40a070">32</span>];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">             </span>password[<span style="color: #40a070">32</span>];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">             </span>ip_addr[EC200_MAX_IP_ADDR_LEN];<span style="color: #bbbbbb"> </span><span style="color: #60a0b0; font-style: italic">// Assigned IP (output)</span>
+}<span style="color: #bbbbbb"> </span>ec200_pdp_context_t;
+</code></pre></div>
+
+<hr />
+<h3 id="tcpip-types">TCP/IP Types</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_SOCK_TCP<span style="color: #bbbbbb">          </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,<span style="color: #bbbbbb"> </span>EC200_SOCK_UDP<span style="color: #bbbbbb">          </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,
+<span style="color: #bbbbbb">    </span>EC200_SOCK_TCP_LISTENER<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,<span style="color: #bbbbbb"> </span>EC200_SOCK_UDP_SERVICE<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">3</span>,
+}<span style="color: #bbbbbb"> </span>ec200_sock_type_t;
+
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_ACCESS_BUFFER<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,<span style="color: #bbbbbb"> </span>EC200_ACCESS_DIRECT<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,<span style="color: #bbbbbb"> </span>EC200_ACCESS_TRANS<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,
+}<span style="color: #bbbbbb"> </span>ec200_access_mode_t;
+
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">struct</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span><span style="color: #902000">int</span><span style="color: #bbbbbb">               </span>conn_id;
+<span style="color: #bbbbbb">    </span>ec200_sock_type_t<span style="color: #bbbbbb"> </span>type;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">              </span>remote_host[EC200_MAX_URL_LEN];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">          </span>remote_port;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">bool</span><span style="color: #bbbbbb">              </span>connected;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">          </span>bytes_received;
+}<span style="color: #bbbbbb"> </span>ec200_socket_t;
+</code></pre></div>
+
+<hr />
+<h3 id="http-types">HTTP Types</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_HTTP_GET<span style="color: #bbbbbb">    </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,<span style="color: #bbbbbb"> </span>EC200_HTTP_POST<span style="color: #bbbbbb">   </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,<span style="color: #bbbbbb"> </span>EC200_HTTP_HEAD<span style="color: #bbbbbb">   </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,
+<span style="color: #bbbbbb">    </span>EC200_HTTP_DELETE<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">3</span>,<span style="color: #bbbbbb"> </span>EC200_HTTP_PUT<span style="color: #bbbbbb">    </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">4</span>,
+}<span style="color: #bbbbbb"> </span>ec200_http_method_t;
+
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">struct</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb"> </span>status_code;<span style="color: #bbbbbb">    </span><span style="color: #60a0b0; font-style: italic">// e.g. 200, 404</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb"> </span>content_length;
+}<span style="color: #bbbbbb"> </span>ec200_http_response_t;
+</code></pre></div>
+
+<hr />
+<h3 id="mqtt-types">MQTT Types</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_MQTT_QOS0<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,<span style="color: #bbbbbb"> </span>EC200_MQTT_QOS1<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,<span style="color: #bbbbbb"> </span>EC200_MQTT_QOS2<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">2</span>,
+}<span style="color: #bbbbbb"> </span>ec200_mqtt_qos_t;
+
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">struct</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span>host[EC200_MAX_URL_LEN];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb"> </span>port;<span style="color: #bbbbbb">                    </span><span style="color: #60a0b0; font-style: italic">// Default 1883</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span>client_id[<span style="color: #40a070">64</span>];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span>username[<span style="color: #40a070">64</span>];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span>password[<span style="color: #40a070">64</span>];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb"> </span>keep_alive;<span style="color: #bbbbbb">              </span><span style="color: #60a0b0; font-style: italic">// Seconds</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">bool</span><span style="color: #bbbbbb">     </span>clean_session;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">  </span>tcp_connect_id;<span style="color: #bbbbbb">          </span><span style="color: #60a0b0; font-style: italic">// AT+QMTOPEN context (0-5)</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">  </span>client_idx;<span style="color: #bbbbbb">              </span><span style="color: #60a0b0; font-style: italic">// AT+QMTCONN client index</span>
+}<span style="color: #bbbbbb"> </span>ec200_mqtt_config_t;
+
+<span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">struct</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span>topic[EC200_MAX_TOPIC_LEN];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">  </span>payload[EC200_MAX_PAYLOAD_LEN];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb"> </span>payload_len;
+<span style="color: #bbbbbb">    </span>ec200_mqtt_qos_t<span style="color: #bbbbbb"> </span>qos;
+}<span style="color: #bbbbbb"> </span>ec200_mqtt_message_t;
+</code></pre></div>
+
+<hr />
+<h3 id="gnss-types">GNSS Types</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">struct</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span><span style="color: #902000">bool</span><span style="color: #bbbbbb">    </span>fix_valid;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">float</span><span style="color: #bbbbbb">   </span>latitude;<span style="color: #bbbbbb">       </span><span style="color: #60a0b0; font-style: italic">// Degrees (+N, -S)</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">float</span><span style="color: #bbbbbb">   </span>longitude;<span style="color: #bbbbbb">      </span><span style="color: #60a0b0; font-style: italic">// Degrees (+E, -W)</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">float</span><span style="color: #bbbbbb">   </span>altitude;<span style="color: #bbbbbb">       </span><span style="color: #60a0b0; font-style: italic">// Metres above MSL</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">float</span><span style="color: #bbbbbb">   </span>speed_kmh;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">float</span><span style="color: #bbbbbb">   </span>course;<span style="color: #bbbbbb">         </span><span style="color: #60a0b0; font-style: italic">// Degrees</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>satellites_used;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>hdop;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">    </span>utc_time[<span style="color: #40a070">40</span>];
+}<span style="color: #bbbbbb"> </span>ec200_gnss_location_t;
+</code></pre></div>
+
+<hr />
+<h3 id="power-types">Power Types</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">enum</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>EC200_CFUN_MIN<span style="color: #bbbbbb">       </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">0</span>,<span style="color: #bbbbbb"> </span><span style="color: #60a0b0; font-style: italic">// Minimum functionality (RF off)</span>
+<span style="color: #bbbbbb">    </span>EC200_CFUN_FULL<span style="color: #bbbbbb">      </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">1</span>,<span style="color: #bbbbbb"> </span><span style="color: #60a0b0; font-style: italic">// Full functionality</span>
+<span style="color: #bbbbbb">    </span>EC200_CFUN_DISABLE_TX<span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">4</span>,<span style="color: #bbbbbb"> </span><span style="color: #60a0b0; font-style: italic">// Disable TX only</span>
+<span style="color: #bbbbbb">    </span>EC200_CFUN_AIRPLANE<span style="color: #bbbbbb">  </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #40a070">7</span>,<span style="color: #bbbbbb"> </span><span style="color: #60a0b0; font-style: italic">// Airplane mode</span>
+}<span style="color: #bbbbbb"> </span>ec200_cfun_t;
+</code></pre></div>
+
+<hr />
+<h3 id="library-handle">Library Handle</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020; font-weight: bold">typedef</span><span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">struct</span><span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span><span style="color: #60a0b0; font-style: italic">// User-supplied callbacks (required)</span>
+<span style="color: #bbbbbb">    </span>ec200_write_fn<span style="color: #bbbbbb">       </span>write;
+<span style="color: #bbbbbb">    </span>ec200_read_fn<span style="color: #bbbbbb">        </span>read;
+<span style="color: #bbbbbb">    </span>ec200_delay_fn<span style="color: #bbbbbb">       </span>delay_ms;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">void</span><span style="color: #bbbbbb">                </span><span style="color: #666666">*</span>user_ctx;
+
+<span style="color: #bbbbbb">    </span><span style="color: #60a0b0; font-style: italic">// Optional callbacks</span>
+<span style="color: #bbbbbb">    </span>ec200_urc_handler_fn<span style="color: #bbbbbb"> </span>urc_handler;<span style="color: #bbbbbb">  </span><span style="color: #60a0b0; font-style: italic">// NULL = ignore URCs</span>
+<span style="color: #bbbbbb">    </span>ec200_mqtt_msg_fn<span style="color: #bbbbbb">    </span>mqtt_msg_cb;<span style="color: #bbbbbb">  </span><span style="color: #60a0b0; font-style: italic">// NULL = ignore MQTT messages</span>
+
+<span style="color: #bbbbbb">    </span><span style="color: #60a0b0; font-style: italic">// Internal (do not access directly)</span>
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">  </span>_rx_buf[EC200_RX_BUFFER_SIZE];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">  </span>_tx_buf[EC200_TX_BUFFER_SIZE];
+<span style="color: #bbbbbb">    </span><span style="color: #902000">bool</span><span style="color: #bbbbbb">  </span>_initialised;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">int</span><span style="color: #bbbbbb">   </span>_last_cme_error;
+<span style="color: #bbbbbb">    </span><span style="color: #902000">int</span><span style="color: #bbbbbb">   </span>_last_cms_error;
+}<span style="color: #bbbbbb"> </span>ec200_handle_t;
+</code></pre></div>
+
+<hr />
+<h2 id="core-api">Core API</h2>
+<p><strong>Header:</strong> <code>ec200.h</code><br />
+<strong>Group:</strong> <code>EC200_Core</code></p>
+<h3 id="library-version-macros">Library Version Macros</h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020">#define EC200_LIB_VERSION_MAJOR  1</span>
+<span style="color: #007020">#define EC200_LIB_VERSION_MINOR  0</span>
+<span style="color: #007020">#define EC200_LIB_VERSION_PATCH  0</span>
+</code></pre></div>
+
+<hr />
+<h3 id="ec200_init"><code>ec200_init</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_init</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                          </span>ec200_write_fn<span style="color: #bbbbbb">  </span>write_fn,
+<span style="color: #bbbbbb">                          </span>ec200_read_fn<span style="color: #bbbbbb">   </span>read_fn,
+<span style="color: #bbbbbb">                          </span>ec200_delay_fn<span style="color: #bbbbbb">  </span>delay_fn,
+<span style="color: #bbbbbb">                          </span><span style="color: #902000">void</span><span style="color: #bbbbbb">           </span><span style="color: #666666">*</span>user_ctx);
+</code></pre></div>
+
+<p>Initialise the library handle.  Must be called once before any other function.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Direction</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>h</code></td>
+<td>in</td>
+<td>Pointer to a caller-allocated <code>ec200_handle_t</code></td>
+</tr>
+<tr>
+<td><code>write_fn</code></td>
+<td>in</td>
+<td>Platform UART write callback (must not be NULL)</td>
+</tr>
+<tr>
+<td><code>read_fn</code></td>
+<td>in</td>
+<td>Platform UART read callback (must not be NULL)</td>
+</tr>
+<tr>
+<td><code>delay_fn</code></td>
+<td>in</td>
+<td>Platform delay callback (must not be NULL)</td>
+</tr>
+<tr>
+<td><code>user_ctx</code></td>
+<td>in</td>
+<td>Opaque pointer forwarded to every callback (may be NULL)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>EC200_OK</code>, <code>EC200_ERR_PARAM</code> (NULL callback), or <code>EC200_ERR_TIMEOUT</code>.</p>
+<hr />
+<h3 id="ec200_check_at"><code>ec200_check_at</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_check_at</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h);
+</code></pre></div>
+
+<p>Send a plain <code>AT</code> and verify the module replies <code>OK</code>.  Useful as a keep-alive.</p>
+<p><strong>Returns:</strong> <code>EC200_OK</code> or <code>EC200_ERR_TIMEOUT</code>.</p>
+<hr />
+<h3 id="ec200_get_imei"><code>ec200_get_imei</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_get_imei</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">char</span><span style="color: #bbbbbb">           </span><span style="color: #666666">*</span>imei,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">size_t</span><span style="color: #bbbbbb">          </span>imei_sz);
+</code></pre></div>
+
+<p>Read the module IMEI via <code>AT+GSN</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Direction</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>imei</code></td>
+<td>out</td>
+<td>Buffer ≥ <code>EC200_MAX_IMEI_LEN</code> bytes</td>
+</tr>
+<tr>
+<td><code>imei_sz</code></td>
+<td>in</td>
+<td>Size of <code>imei</code> buffer</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>EC200_OK</code> or an error code.</p>
+<hr />
+<h3 id="ec200_get_fw_version"><code>ec200_get_fw_version</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_get_fw_version</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                    </span><span style="color: #902000">char</span><span style="color: #bbbbbb">           </span><span style="color: #666666">*</span>ver,
+<span style="color: #bbbbbb">                                    </span><span style="color: #902000">size_t</span><span style="color: #bbbbbb">          </span>ver_sz);
+</code></pre></div>
+
+<p>Read firmware revision via <code>AT+GMR</code>.</p>
+<hr />
+<h3 id="ec200_get_module_info"><code>ec200_get_module_info</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_get_module_info</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                     </span><span style="color: #902000">char</span><span style="color: #bbbbbb">           </span><span style="color: #666666">*</span>info,
+<span style="color: #bbbbbb">                                     </span><span style="color: #902000">size_t</span><span style="color: #bbbbbb">          </span>info_sz);
+</code></pre></div>
+
+<p>Read manufacturer identification via <code>ATI</code>.</p>
+<hr />
+<h3 id="ec200_set_echo"><code>ec200_set_echo</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_set_echo</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">bool</span><span style="color: #bbbbbb"> </span>enable);
+</code></pre></div>
+
+<p>Enable (<code>ATE1</code>) or disable (<code>ATE0</code>) command echo.</p>
+<hr />
+<h3 id="ec200_set_cmee"><code>ec200_set_cmee</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_set_cmee</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>mode);
+</code></pre></div>
+
+<p>Set verbose error reporting via <code>AT+CMEE=&lt;mode&gt;</code>.<br />
+<code>mode</code>: 0 = disabled, 1 = numeric, 2 = verbose text.</p>
+<hr />
+<h3 id="ec200_set_urc_handler"><code>ec200_set_urc_handler</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_set_urc_handler</span>(ec200_handle_t<span style="color: #bbbbbb">       </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                           </span>ec200_urc_handler_fn<span style="color: #bbbbbb">  </span>handler);
+</code></pre></div>
+
+<p>Register a URC callback.  Pass <code>NULL</code> to unregister.</p>
+<hr />
+<h3 id="ec200_status_str"><code>ec200_status_str</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span><span style="color: #06287e">ec200_status_str</span>(ec200_status_t<span style="color: #bbbbbb"> </span>status);
+</code></pre></div>
+
+<p>Convert a status code to a human-readable string (never returns NULL).</p>
+<hr />
+<h2 id="at-transport-layer">AT Transport Layer</h2>
+<p><strong>Header:</strong> <code>ec200_at.h</code><br />
+<strong>Group:</strong> <code>EC200_AT</code></p>
+<h3 id="timeout-constants">Timeout Constants</h3>
+<table>
+<thead>
+<tr>
+<th>Constant</th>
+<th>Value (ms)</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EC200_AT_TIMEOUT_DEFAULT</code></td>
+<td>1000</td>
+<td>Generic AT commands</td>
+</tr>
+<tr>
+<td><code>EC200_AT_TIMEOUT_SHORT</code></td>
+<td>300</td>
+<td>Fast queries</td>
+</tr>
+<tr>
+<td><code>EC200_AT_TIMEOUT_LONG</code></td>
+<td>10000</td>
+<td>Network attach / socket open</td>
+</tr>
+<tr>
+<td><code>EC200_AT_TIMEOUT_HTTP</code></td>
+<td>30000</td>
+<td>HTTP GET/POST</td>
+</tr>
+<tr>
+<td><code>EC200_AT_TIMEOUT_COPS</code></td>
+<td>120000</td>
+<td>Operator search</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="ec200_at_send"><code>ec200_at_send</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_at_send</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                             </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>cmd,
+<span style="color: #bbbbbb">                             </span><span style="color: #902000">char</span><span style="color: #bbbbbb">           </span><span style="color: #666666">*</span>resp_buf,
+<span style="color: #bbbbbb">                             </span><span style="color: #902000">size_t</span><span style="color: #bbbbbb">          </span>resp_buf_sz,
+<span style="color: #bbbbbb">                             </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">        </span>timeout_ms);
+</code></pre></div>
+
+<p>Send a raw AT command string and wait for <code>OK</code> / <code>ERROR</code> / <code>+CME ERROR</code> / <code>+CMS ERROR</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cmd</code></td>
+<td>NUL-terminated command string without <code>\r\n</code></td>
+</tr>
+<tr>
+<td><code>resp_buf</code></td>
+<td>Optional buffer for raw response; pass <code>NULL</code> to discard</td>
+</tr>
+<tr>
+<td><code>resp_buf_sz</code></td>
+<td>Size of <code>resp_buf</code> (ignored when <code>NULL</code>)</td>
+</tr>
+<tr>
+<td><code>timeout_ms</code></td>
+<td>Maximum wait in milliseconds</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>EC200_OK</code>, <code>EC200_ERR_TIMEOUT</code>, <code>EC200_ERR_CME</code>, <code>EC200_ERR_CMS</code>, <code>EC200_ERR_IO</code>, or <code>EC200_ERR_OVERFLOW</code>.</p>
+<hr />
+<h3 id="ec200_at_send_wait"><code>ec200_at_send_wait</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_at_send_wait</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                  </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>cmd,
+<span style="color: #bbbbbb">                                  </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>expected_prefix,
+<span style="color: #bbbbbb">                                  </span><span style="color: #902000">char</span><span style="color: #bbbbbb">           </span><span style="color: #666666">*</span>resp_buf,
+<span style="color: #bbbbbb">                                  </span><span style="color: #902000">size_t</span><span style="color: #bbbbbb">          </span>resp_buf_sz,
+<span style="color: #bbbbbb">                                  </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">        </span>timeout_ms);
+</code></pre></div>
+
+<p>Like <code>ec200_at_send</code> but returns <code>EC200_OK</code> as soon as a line starting with
+<code>expected_prefix</code> (e.g. <code>"+CPIN:"</code>) is received.</p>
+<hr />
+<h3 id="ec200_at_write_raw"><code>ec200_at_write_raw</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_at_write_raw</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                  </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">  </span><span style="color: #666666">*</span>data,
+<span style="color: #bbbbbb">                                  </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">        </span>len);
+</code></pre></div>
+
+<p>Write raw bytes to UART (bypasses AT framing — for transparent/data mode).</p>
+<hr />
+<h3 id="ec200_at_read_raw"><code>ec200_at_read_raw</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_at_read_raw</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                 </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">        </span><span style="color: #666666">*</span>buf,
+<span style="color: #bbbbbb">                                 </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">        </span>len,
+<span style="color: #bbbbbb">                                 </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">        </span>timeout_ms,
+<span style="color: #bbbbbb">                                 </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">       </span><span style="color: #666666">*</span>bytes_read);
+</code></pre></div>
+
+<p>Read raw bytes from UART.  <code>bytes_read</code> is set to the actual byte count.</p>
+<hr />
+<h3 id="ec200_at_poll_urc"><code>ec200_at_poll_urc</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_at_poll_urc</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb"> </span>timeout_ms);
+</code></pre></div>
+
+<p>Poll for unsolicited result codes.  Call periodically from a main loop or RTOS
+task.  Dispatches lines to <code>h-&gt;urc_handler</code>.  Pass <code>timeout_ms = 0</code> for a
+non-blocking poll.</p>
+<hr />
+<h3 id="ec200_at_last_cme_error-ec200_at_last_cms_error"><code>ec200_at_last_cme_error</code> / <code>ec200_at_last_cms_error</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #902000">int</span><span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_at_last_cme_error</span>(<span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span>ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h);
+<span style="color: #902000">int</span><span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_at_last_cms_error</span>(<span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span>ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h);
+</code></pre></div>
+
+<p>Retrieve the last raw <code>+CME ERROR</code> or <code>+CMS ERROR</code> code.  Returns <code>-1</code> if the
+last error was not of that type.</p>
+<hr />
+<h2 id="sim-card-management">SIM Card Management</h2>
+<p><strong>Header:</strong> <code>ec200_sim.h</code><br />
+<strong>Group:</strong> <code>EC200_SIM</code></p>
+<h3 id="ec200_sim_get_status"><code>ec200_sim_get_status</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_sim_get_status</span>(ec200_handle_t<span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                    </span>ec200_sim_status_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>status);
+</code></pre></div>
+
+<p>Query SIM PIN state via <code>AT+CPIN?</code>.</p>
+<hr />
+<h3 id="ec200_sim_enter_pin"><code>ec200_sim_enter_pin</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_sim_enter_pin</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>pin);
+</code></pre></div>
+
+<p>Enter the SIM PIN via <code>AT+CPIN=&lt;pin&gt;</code>.</p>
+<hr />
+<h3 id="ec200_sim_get_imsi"><code>ec200_sim_get_imsi</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_sim_get_imsi</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                  </span><span style="color: #902000">char</span><span style="color: #bbbbbb">           </span><span style="color: #666666">*</span>imsi,
+<span style="color: #bbbbbb">                                  </span><span style="color: #902000">size_t</span><span style="color: #bbbbbb">          </span>imsi_sz);
+</code></pre></div>
+
+<p>Read IMSI via <code>AT+CIMI</code>.  Buffer must be ≥ <code>EC200_MAX_IMSI_LEN</code>.</p>
+<hr />
+<h3 id="ec200_sim_get_iccid"><code>ec200_sim_get_iccid</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_sim_get_iccid</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                   </span><span style="color: #902000">char</span><span style="color: #bbbbbb">           </span><span style="color: #666666">*</span>iccid,
+<span style="color: #bbbbbb">                                   </span><span style="color: #902000">size_t</span><span style="color: #bbbbbb">          </span>iccid_sz);
+</code></pre></div>
+
+<p>Read ICCID via <code>AT+CCID</code>.  Buffer must be ≥ <code>EC200_MAX_ICCID_LEN</code>.</p>
+<hr />
+<h2 id="network-registration">Network Registration</h2>
+<p><strong>Header:</strong> <code>ec200_network.h</code><br />
+<strong>Group:</strong> <code>EC200_Network</code></p>
+<h3 id="ec200_net_get_creg"><code>ec200_net_get_creg</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_net_get_creg</span>(ec200_handle_t<span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                  </span>ec200_reg_status_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>status);
+</code></pre></div>
+
+<p>Query CS (circuit-switched) registration via <code>AT+CREG?</code>.</p>
+<hr />
+<h3 id="ec200_net_get_cgreg"><code>ec200_net_get_cgreg</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_net_get_cgreg</span>(ec200_handle_t<span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                   </span>ec200_reg_status_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>status);
+</code></pre></div>
+
+<p>Query GPRS registration via <code>AT+CGREG?</code>.</p>
+<hr />
+<h3 id="ec200_net_get_cereg"><code>ec200_net_get_cereg</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_net_get_cereg</span>(ec200_handle_t<span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                   </span>ec200_reg_status_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>status);
+</code></pre></div>
+
+<p>Query LTE/EPS registration via <code>AT+CEREG?</code>.</p>
+<hr />
+<h3 id="ec200_net_get_signal"><code>ec200_net_get_signal</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_net_get_signal</span>(ec200_handle_t<span style="color: #bbbbbb">         </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                    </span>ec200_signal_quality_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>sq);
+</code></pre></div>
+
+<p>Query signal quality (<code>rssi</code>, <code>ber</code>) via <code>AT+CSQ</code>.</p>
+<hr />
+<h3 id="ec200_net_get_signal_ext"><code>ec200_net_get_signal_ext</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_net_get_signal_ext</span>(ec200_handle_t<span style="color: #bbbbbb">         </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                        </span>ec200_signal_quality_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>sq);
+</code></pre></div>
+
+<p>Query extended LTE signal quality (<code>rssi</code>, <code>ber</code>, <code>rsrp</code>, <code>sinr</code>) via <code>AT+QCSQ</code>.</p>
+<hr />
+<h3 id="ec200_net_get_operator"><code>ec200_net_get_operator</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_net_get_operator</span>(ec200_handle_t<span style="color: #bbbbbb">        </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                      </span>ec200_operator_info_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>info);
+</code></pre></div>
+
+<p>Read current operator via <code>AT+COPS?</code>.</p>
+<hr />
+<h3 id="ec200_net_set_operator"><code>ec200_net_set_operator</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_net_set_operator</span>(ec200_handle_t<span style="color: #bbbbbb">    </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                      </span>ec200_cops_mode_t<span style="color: #bbbbbb">  </span>mode,
+<span style="color: #bbbbbb">                                      </span>ec200_cops_fmt_t<span style="color: #bbbbbb">   </span>format,
+<span style="color: #bbbbbb">                                      </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">        </span><span style="color: #666666">*</span>oper,
+<span style="color: #bbbbbb">                                      </span>ec200_act_t<span style="color: #bbbbbb">        </span>act);
+</code></pre></div>
+
+<p>Select operator manually or set automatic selection via <code>AT+COPS=…</code>.</p>
+<hr />
+<h3 id="ec200_net_wait_registered"><code>ec200_net_wait_registered</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_net_wait_registered</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                         </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">        </span>timeout_ms);
+</code></pre></div>
+
+<p>Block until the device is registered on the network (HOME or ROAMING).
+Polls <code>AT+CEREG</code> every 2 s.</p>
+<p><strong>Returns:</strong> <code>EC200_OK</code> when registered, <code>EC200_ERR_TIMEOUT</code> if not registered
+within <code>timeout_ms</code>.</p>
+<hr />
+<h2 id="sms-messaging">SMS Messaging</h2>
+<p><strong>Header:</strong> <code>ec200_sms.h</code><br />
+<strong>Group:</strong> <code>EC200_SMS</code></p>
+<h3 id="ec200_sms_set_format"><code>ec200_sms_set_format</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_sms_set_format</span>(ec200_handle_t<span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                    </span>ec200_sms_format_t<span style="color: #bbbbbb">  </span>format);
+</code></pre></div>
+
+<p>Set SMS format via <code>AT+CMGF</code>.  Use <code>EC200_SMS_FORMAT_TEXT</code> for text mode.</p>
+<hr />
+<h3 id="ec200_sms_send"><code>ec200_sms_send</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_sms_send</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                              </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>number,
+<span style="color: #bbbbbb">                              </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>text);
+</code></pre></div>
+
+<p>Send SMS in text mode via <code>AT+CMGS</code>.  Text mode must be enabled first.</p>
+<hr />
+<h3 id="ec200_sms_read"><code>ec200_sms_read</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_sms_read</span>(ec200_handle_t<span style="color: #bbbbbb">      </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">int</span><span style="color: #bbbbbb">                  </span>index,
+<span style="color: #bbbbbb">                              </span>ec200_sms_message_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>msg);
+</code></pre></div>
+
+<p>Read a single message by 1-based storage index via <code>AT+CMGR</code>.</p>
+<hr />
+<h3 id="ec200_sms_list"><code>ec200_sms_list</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_sms_list</span>(ec200_handle_t<span style="color: #bbbbbb">      </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                              </span>ec200_sms_stat_t<span style="color: #bbbbbb">      </span>stat,
+<span style="color: #bbbbbb">                              </span>ec200_sms_message_t<span style="color: #bbbbbb">  </span><span style="color: #666666">*</span>msgs,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">               </span>max_msgs,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">              </span><span style="color: #666666">*</span>count_out);
+</code></pre></div>
+
+<p>List messages matching a status filter via <code>AT+CMGL</code>.</p>
+<hr />
+<h3 id="ec200_sms_delete"><code>ec200_sms_delete</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_sms_delete</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">int</span><span style="color: #bbbbbb"> </span>index);
+</code></pre></div>
+
+<p>Delete message at 1-based <code>index</code> via <code>AT+CMGD</code>.</p>
+<hr />
+<h3 id="ec200_sms_delete_all"><code>ec200_sms_delete_all</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_sms_delete_all</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>flag);
+</code></pre></div>
+
+<p>Bulk delete via <code>AT+CMGD</code> with flag:<br />
+<code>1</code> = all read, <code>2</code> = read + sent, <code>3</code> = read + sent + unsent, <code>4</code> = all.</p>
+<hr />
+<h2 id="pdp-data-connection">PDP / Data Connection</h2>
+<p><strong>Header:</strong> <code>ec200_data.h</code><br />
+<strong>Group:</strong> <code>EC200_Data</code></p>
+<h3 id="ec200_data_set_pdp"><code>ec200_data_set_pdp</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_data_set_pdp</span>(ec200_handle_t<span style="color: #bbbbbb">            </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                  </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span>ec200_pdp_context_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>ctx);
+</code></pre></div>
+
+<p>Configure a PDP context via <code>AT+CGDCONT</code>.  <code>ctx-&gt;cid</code> must be 1–16.</p>
+<hr />
+<h3 id="ec200_data_activate"><code>ec200_data_activate</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_data_activate</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>cid);
+</code></pre></div>
+
+<p>Activate PDP context <code>cid</code> via <code>AT+CGACT=1,&lt;cid&gt;</code>.</p>
+<hr />
+<h3 id="ec200_data_deactivate"><code>ec200_data_deactivate</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_data_deactivate</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>cid);
+</code></pre></div>
+
+<p>Deactivate PDP context <code>cid</code> via <code>AT+CGACT=0,&lt;cid&gt;</code>.</p>
+<hr />
+<h3 id="ec200_data_get_ip"><code>ec200_data_get_ip</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_data_get_ip</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                 </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">         </span>cid,
+<span style="color: #bbbbbb">                                 </span><span style="color: #902000">char</span><span style="color: #bbbbbb">           </span><span style="color: #666666">*</span>ip_buf,
+<span style="color: #bbbbbb">                                 </span><span style="color: #902000">size_t</span><span style="color: #bbbbbb">          </span>ip_buf_sz);
+</code></pre></div>
+
+<p>Query the IP address assigned to <code>cid</code> via <code>AT+CGPADDR</code>.</p>
+<hr />
+<h3 id="ec200_data_connect"><code>ec200_data_connect</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_data_connect</span>(ec200_handle_t<span style="color: #bbbbbb">      </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                  </span>ec200_pdp_context_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>ctx);
+</code></pre></div>
+
+<p>Convenience helper: calls <code>ec200_data_set_pdp</code> → <code>ec200_data_activate</code> →
+<code>ec200_data_get_ip</code> in sequence.  On success, <code>ctx-&gt;ip_addr</code> is populated.</p>
+<hr />
+<h2 id="tcpip-sockets">TCP/IP Sockets</h2>
+<p><strong>Header:</strong> <code>ec200_tcpip.h</code><br />
+<strong>Group:</strong> <code>EC200_TCPIP</code></p>
+<h3 id="ec200_tcp_open"><code>ec200_tcp_open</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_tcp_open</span>(ec200_handle_t<span style="color: #bbbbbb">      </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">              </span>ctx_id,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">              </span>conn_id,
+<span style="color: #bbbbbb">                              </span>ec200_sock_type_t<span style="color: #bbbbbb">    </span>type,
+<span style="color: #bbbbbb">                              </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">          </span><span style="color: #666666">*</span>host,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">             </span>port,
+<span style="color: #bbbbbb">                              </span>ec200_access_mode_t<span style="color: #bbbbbb">  </span>access_mode);
+</code></pre></div>
+
+<p>Open a TCP or UDP socket via <code>AT+QIOPEN</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ctx_id</code></td>
+<td>PDP context ID (0–16)</td>
+</tr>
+<tr>
+<td><code>conn_id</code></td>
+<td>Connection ID (0 to <code>EC200_MAX_CONNECTIONS-1</code>)</td>
+</tr>
+<tr>
+<td><code>type</code></td>
+<td><code>EC200_SOCK_TCP</code> or <code>EC200_SOCK_UDP</code></td>
+</tr>
+<tr>
+<td><code>access_mode</code></td>
+<td>Buffer / direct / transparent mode</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="ec200_tcp_send"><code>ec200_tcp_send</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_tcp_send</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">         </span>conn_id,
+<span style="color: #bbbbbb">                              </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">  </span><span style="color: #666666">*</span>data,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">        </span>len);
+</code></pre></div>
+
+<p>Send data via <code>AT+QISEND</code>.</p>
+<hr />
+<h3 id="ec200_tcp_recv"><code>ec200_tcp_recv</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_tcp_recv</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">         </span>conn_id,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">        </span><span style="color: #666666">*</span>buf,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">        </span>max_len,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">       </span><span style="color: #666666">*</span>bytes_read,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">        </span>timeout_ms);
+</code></pre></div>
+
+<p>Receive data via <code>AT+QIRD</code>.  <code>bytes_read</code> contains actual bytes received.</p>
+<hr />
+<h3 id="ec200_tcp_close"><code>ec200_tcp_close</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_tcp_close</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>conn_id);
+</code></pre></div>
+
+<p>Close connection via <code>AT+QICLOSE</code>.</p>
+<hr />
+<h3 id="ec200_tcp_get_state"><code>ec200_tcp_get_state</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_tcp_get_state</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                   </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">         </span>conn_id,
+<span style="color: #bbbbbb">                                   </span>ec200_socket_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>sock);
+</code></pre></div>
+
+<p>Query connection state via <code>AT+QISTATE</code>.</p>
+<hr />
+<h3 id="ec200_tcp_bytes_available"><code>ec200_tcp_bytes_available</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_tcp_bytes_available</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                         </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">         </span>conn_id,
+<span style="color: #bbbbbb">                                         </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">       </span><span style="color: #666666">*</span>bytes_avail);
+</code></pre></div>
+
+<p>Query bytes waiting in receive buffer via <code>AT+QIRD=&lt;conn_id&gt;,0</code>.</p>
+<hr />
+<h2 id="http-client">HTTP Client</h2>
+<p><strong>Header:</strong> <code>ec200_http.h</code><br />
+<strong>Group:</strong> <code>EC200_HTTP</code></p>
+<h3 id="ec200_http_set_context"><code>ec200_http_set_context</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_http_set_context</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>ctx_id);
+</code></pre></div>
+
+<p>Bind the HTTP session to a PDP context via <code>AT+QHTTPCFG</code>.</p>
+<hr />
+<h3 id="ec200_http_set_url"><code>ec200_http_set_url</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_http_set_url</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>url);
+</code></pre></div>
+
+<p>Set request URL (max <code>EC200_MAX_URL_LEN</code>) via <code>AT+QHTTPURL</code>.</p>
+<hr />
+<h3 id="ec200_http_get"><code>ec200_http_get</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_http_get</span>(ec200_handle_t<span style="color: #bbbbbb">        </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                              </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">               </span>timeout_ms,
+<span style="color: #bbbbbb">                              </span>ec200_http_response_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>resp);
+</code></pre></div>
+
+<p>Perform HTTP GET via <code>AT+QHTTPGET</code>.  <code>resp</code> is populated with status code and
+content length.  URL must be set first with <code>ec200_http_set_url()</code>.</p>
+<hr />
+<h3 id="ec200_http_post"><code>ec200_http_post</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_http_post</span>(ec200_handle_t<span style="color: #bbbbbb">        </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                               </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">         </span><span style="color: #666666">*</span>body,
+<span style="color: #bbbbbb">                               </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">               </span>body_len,
+<span style="color: #bbbbbb">                               </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">            </span><span style="color: #666666">*</span>content_type,
+<span style="color: #bbbbbb">                               </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">               </span>timeout_ms,
+<span style="color: #bbbbbb">                               </span>ec200_http_response_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>resp);
+</code></pre></div>
+
+<p>Perform HTTP POST via <code>AT+QHTTPPOST</code>.</p>
+<hr />
+<h3 id="ec200_http_read"><code>ec200_http_read</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_http_read</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                               </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">        </span><span style="color: #666666">*</span>buf,
+<span style="color: #bbbbbb">                               </span><span style="color: #902000">size_t</span><span style="color: #bbbbbb">          </span>buf_sz,
+<span style="color: #bbbbbb">                               </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">       </span><span style="color: #666666">*</span>bytes_read,
+<span style="color: #bbbbbb">                               </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">        </span>timeout_ms);
+</code></pre></div>
+
+<p>Read response body via <code>AT+QHTTPREAD</code>.  Call after a successful GET or POST.</p>
+<hr />
+<h3 id="ec200_http_stop"><code>ec200_http_stop</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_http_stop</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h);
+</code></pre></div>
+
+<p>Release HTTP session via <code>AT+QHTTPSTOP</code>.</p>
+<hr />
+<h2 id="mqtt-client">MQTT Client</h2>
+<p><strong>Header:</strong> <code>ec200_mqtt.h</code><br />
+<strong>Group:</strong> <code>EC200_MQTT</code></p>
+<h3 id="ec200_mqtt_open"><code>ec200_mqtt_open</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_mqtt_open</span>(ec200_handle_t<span style="color: #bbbbbb">            </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                               </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span>ec200_mqtt_config_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>cfg);
+</code></pre></div>
+
+<p>Open TCP connection to the MQTT broker via <code>AT+QMTOPEN</code>.</p>
+<hr />
+<h3 id="ec200_mqtt_connect"><code>ec200_mqtt_connect</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_mqtt_connect</span>(ec200_handle_t<span style="color: #bbbbbb">            </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                  </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span>ec200_mqtt_config_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>cfg);
+</code></pre></div>
+
+<p>Send MQTT CONNECT packet via <code>AT+QMTCONN</code>.  Must follow <code>ec200_mqtt_open()</code>.</p>
+<hr />
+<h3 id="ec200_mqtt_disconnect"><code>ec200_mqtt_disconnect</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_mqtt_disconnect</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>client_idx);
+</code></pre></div>
+
+<p>Send MQTT DISCONNECT via <code>AT+QMTDISC</code>.</p>
+<hr />
+<h3 id="ec200_mqtt_close"><code>ec200_mqtt_close</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_mqtt_close</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb"> </span>tcp_connect_id);
+</code></pre></div>
+
+<p>Close underlying TCP connection via <code>AT+QMTCLOSE</code>.</p>
+<hr />
+<h3 id="ec200_mqtt_subscribe"><code>ec200_mqtt_subscribe</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_mqtt_subscribe</span>(ec200_handle_t<span style="color: #bbbbbb">  </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                    </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">          </span>client_idx,
+<span style="color: #bbbbbb">                                    </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">         </span>msg_id,
+<span style="color: #bbbbbb">                                    </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">      </span><span style="color: #666666">*</span>topic,
+<span style="color: #bbbbbb">                                    </span>ec200_mqtt_qos_t<span style="color: #bbbbbb"> </span>qos);
+</code></pre></div>
+
+<p>Subscribe to a topic via <code>AT+QMTSUB</code>.</p>
+<hr />
+<h3 id="ec200_mqtt_unsubscribe"><code>ec200_mqtt_unsubscribe</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_mqtt_unsubscribe</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                      </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">         </span>client_idx,
+<span style="color: #bbbbbb">                                      </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">        </span>msg_id,
+<span style="color: #bbbbbb">                                      </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">     </span><span style="color: #666666">*</span>topic);
+</code></pre></div>
+
+<p>Unsubscribe from a topic via <code>AT+QMTUNS</code>.</p>
+<hr />
+<h3 id="ec200_mqtt_publish"><code>ec200_mqtt_publish</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_mqtt_publish</span>(ec200_handle_t<span style="color: #bbbbbb">  </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                  </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">          </span>client_idx,
+<span style="color: #bbbbbb">                                  </span><span style="color: #902000">uint16_t</span><span style="color: #bbbbbb">         </span>msg_id,
+<span style="color: #bbbbbb">                                  </span>ec200_mqtt_qos_t<span style="color: #bbbbbb"> </span>qos,
+<span style="color: #bbbbbb">                                  </span><span style="color: #902000">bool</span><span style="color: #bbbbbb">             </span>retain,
+<span style="color: #bbbbbb">                                  </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">char</span><span style="color: #bbbbbb">      </span><span style="color: #666666">*</span>topic,
+<span style="color: #bbbbbb">                                  </span><span style="color: #007020; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">   </span><span style="color: #666666">*</span>payload,
+<span style="color: #bbbbbb">                                  </span><span style="color: #902000">uint32_t</span><span style="color: #bbbbbb">         </span>payload_len);
+</code></pre></div>
+
+<p>Publish a message via <code>AT+QMTPUB</code>.  Use <code>msg_id = 0</code> for QoS 0.</p>
+<hr />
+<h3 id="ec200_mqtt_set_message_cb"><code>ec200_mqtt_set_message_cb</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code><span style="color: #902000">void</span><span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_mqtt_set_message_cb</span>(ec200_handle_t<span style="color: #bbbbbb">   </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                               </span>ec200_mqtt_msg_fn<span style="color: #bbbbbb"> </span>callback);
+</code></pre></div>
+
+<p>Register a callback for incoming <code>+QMTRECV</code> URCs.  Pass <code>NULL</code> to unregister.</p>
+<hr />
+<h2 id="gnss-gps">GNSS / GPS</h2>
+<p><strong>Header:</strong> <code>ec200_gnss.h</code><br />
+<strong>Group:</strong> <code>EC200_GNSS</code></p>
+<h3 id="ec200_gnss_start"><code>ec200_gnss_start</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_gnss_start</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h);
+</code></pre></div>
+
+<p>Turn GNSS engine on via <code>AT+QGPS=1</code>.</p>
+<hr />
+<h3 id="ec200_gnss_stop"><code>ec200_gnss_stop</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_gnss_stop</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h);
+</code></pre></div>
+
+<p>Turn GNSS engine off via <code>AT+QGPSEND</code>.</p>
+<hr />
+<h3 id="ec200_gnss_get_status"><code>ec200_gnss_get_status</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_gnss_get_status</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">bool</span><span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>enabled);
+</code></pre></div>
+
+<p>Query GNSS engine state via <code>AT+QGPS?</code>.</p>
+<hr />
+<h3 id="ec200_gnss_get_location"><code>ec200_gnss_get_location</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_gnss_get_location</span>(ec200_handle_t<span style="color: #bbbbbb">        </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                       </span>ec200_gnss_location_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>loc);
+</code></pre></div>
+
+<p>Read current location via <code>AT+QGPSLOC</code>.  Returns <code>EC200_ERR_CME</code> if no fix.</p>
+<hr />
+<h3 id="ec200_gnss_set_nmea_output"><code>ec200_gnss_set_nmea_output</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_gnss_set_nmea_output</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                          </span><span style="color: #902000">uint8_t</span><span style="color: #bbbbbb">         </span>nmea_types);
+</code></pre></div>
+
+<p>Configure NMEA output sentences via <code>AT+QGPSCFG</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Bit</th>
+<th>Sentence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0x01</code></td>
+<td>GGA</td>
+</tr>
+<tr>
+<td><code>0x02</code></td>
+<td>RMC</td>
+</tr>
+<tr>
+<td><code>0x04</code></td>
+<td>GSV</td>
+</tr>
+<tr>
+<td><code>0x08</code></td>
+<td>GSA</td>
+</tr>
+<tr>
+<td><code>0x10</code></td>
+<td>VTG</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="power-management">Power Management</h2>
+<p><strong>Header:</strong> <code>ec200_power.h</code><br />
+<strong>Group:</strong> <code>EC200_Power</code></p>
+<h3 id="ec200_power_set_cfun"><code>ec200_power_set_cfun</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_power_set_cfun</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,
+<span style="color: #bbbbbb">                                    </span>ec200_cfun_t<span style="color: #bbbbbb">    </span>level,
+<span style="color: #bbbbbb">                                    </span><span style="color: #902000">bool</span><span style="color: #bbbbbb">            </span>reset);
+</code></pre></div>
+
+<p>Set functional level via <code>AT+CFUN</code>.  If <code>reset</code> is <code>true</code>, the module is reset
+before applying the new level.</p>
+<hr />
+<h3 id="ec200_power_get_cfun"><code>ec200_power_get_cfun</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_power_get_cfun</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span>ec200_cfun_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>level);
+</code></pre></div>
+
+<p>Query current functional level via <code>AT+CFUN?</code>.</p>
+<hr />
+<h3 id="ec200_power_down"><code>ec200_power_down</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_power_down</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">bool</span><span style="color: #bbbbbb"> </span>normal);
+</code></pre></div>
+
+<p>Power the module down via <code>AT+QPOWD</code>.  <code>normal = true</code> for graceful shutdown.</p>
+<hr />
+<h3 id="ec200_power_set_sleep"><code>ec200_power_set_sleep</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_power_set_sleep</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h,<span style="color: #bbbbbb"> </span><span style="color: #902000">bool</span><span style="color: #bbbbbb"> </span>enable);
+</code></pre></div>
+
+<p>Enable or disable slow-clock / sleep mode via <code>AT+QSCLK</code>.</p>
+<hr />
+<h3 id="ec200_power_reset"><code>ec200_power_reset</code></h3>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span><span style="color: #06287e">ec200_power_reset</span>(ec200_handle_t<span style="color: #bbbbbb"> </span><span style="color: #666666">*</span>h);
+</code></pre></div>
+
+<p>Reset the module via <code>AT+CFUN=1,1</code>.  Convenience wrapper around
+<code>ec200_power_set_cfun(h, EC200_CFUN_FULL, true)</code>.</p>
+<hr />
+<h2 id="error-handling">Error Handling</h2>
+<p>All API functions return <code>ec200_status_t</code>.</p>
+<div class="codehilite" style="background: #f0f0f0"><pre style="line-height: 125%;"><span></span><code>ec200_status_t<span style="color: #bbbbbb"> </span>st<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span>ec200_some_function(<span style="color: #666666">&amp;</span>modem,<span style="color: #bbbbbb"> </span>...);
+<span style="color: #007020; font-weight: bold">if</span><span style="color: #bbbbbb"> </span>(st<span style="color: #bbbbbb"> </span><span style="color: #666666">!=</span><span style="color: #bbbbbb"> </span>EC200_OK)<span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span>printf(<span style="color: #4070a0">&quot;Error: %s</span><span style="color: #4070a0; font-weight: bold">\n</span><span style="color: #4070a0">&quot;</span>,<span style="color: #bbbbbb"> </span>ec200_status_str(st));
+
+<span style="color: #bbbbbb">    </span><span style="color: #007020; font-weight: bold">if</span><span style="color: #bbbbbb"> </span>(st<span style="color: #bbbbbb"> </span><span style="color: #666666">==</span><span style="color: #bbbbbb"> </span>EC200_ERR_CME)
+<span style="color: #bbbbbb">        </span>printf(<span style="color: #4070a0">&quot;CME code: %d</span><span style="color: #4070a0; font-weight: bold">\n</span><span style="color: #4070a0">&quot;</span>,<span style="color: #bbbbbb"> </span>ec200_at_last_cme_error(<span style="color: #666666">&amp;</span>modem));
+
+<span style="color: #bbbbbb">    </span><span style="color: #007020; font-weight: bold">if</span><span style="color: #bbbbbb"> </span>(st<span style="color: #bbbbbb"> </span><span style="color: #666666">==</span><span style="color: #bbbbbb"> </span>EC200_ERR_CMS)
+<span style="color: #bbbbbb">        </span>printf(<span style="color: #4070a0">&quot;CMS code: %d</span><span style="color: #4070a0; font-weight: bold">\n</span><span style="color: #4070a0">&quot;</span>,<span style="color: #bbbbbb"> </span>ec200_at_last_cms_error(<span style="color: #666666">&amp;</span>modem));
+}
+</code></pre></div>
+
+<h3 id="error-code-quick-reference">Error Code Quick Reference</h3>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Value</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EC200_OK</code></td>
+<td>0</td>
+<td>Success</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_TIMEOUT</code></td>
+<td>-1</td>
+<td>No response within timeout</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_IO</code></td>
+<td>-2</td>
+<td>UART failure</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_PARSE</code></td>
+<td>-3</td>
+<td>Response parsing failed</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_CME</code></td>
+<td>-4</td>
+<td><code>+CME ERROR</code> from module</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_CMS</code></td>
+<td>-5</td>
+<td><code>+CMS ERROR</code> from module</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_BUSY</code></td>
+<td>-6</td>
+<td>Resource in use</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_PARAM</code></td>
+<td>-7</td>
+<td>Invalid argument</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_NOT_READY</code></td>
+<td>-8</td>
+<td>Library not initialised</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_OVERFLOW</code></td>
+<td>-9</td>
+<td>Buffer overflow</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_UNSUPPORTED</code></td>
+<td>-10</td>
+<td>Feature unavailable</td>
+</tr>
+<tr>
+<td><code>EC200_ERR_UNKNOWN</code></td>
+<td>-99</td>
+<td>Unclassified error</td>
+</tr>
+</tbody>
+</table>
+  </div>
+</main>
+
+<button id="back-to-top" title="Back to top" aria-label="Back to top">&#8679;</button>
+
+<script>
+// ---- active nav highlight on scroll ----
+(function(){
+  var headings = document.querySelectorAll('h2[id],h3[id]');
+  var links    = document.querySelectorAll('#nav-list a');
+  function onScroll(){
+    var scrollY = window.pageYOffset + 80;
+    var current = null;
+    headings.forEach(function(h){
+      if(h.offsetTop <= scrollY) current = h.id;
+    });
+    links.forEach(function(a){
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+})();
+
+// ---- back-to-top ----
+(function(){
+  var btn = document.getElementById('back-to-top');
+  window.addEventListener('scroll', function(){
+    btn.classList.toggle('show', window.pageYOffset > 300);
+  }, {passive:true});
+  btn.addEventListener('click', function(){
+    window.scrollTo({top:0,behavior:'smooth'});
+  });
+})();
+
+// ---- sidebar search ----
+(function(){
+  var input = document.getElementById('nav-search');
+  var items = document.querySelectorAll('#nav-list li');
+  input.addEventListener('input', function(){
+    var q = this.value.toLowerCase();
+    items.forEach(function(li){
+      li.style.display = li.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+})();
+</script>
+</body>
+</html>

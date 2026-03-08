@@ -16,6 +16,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_AT AT Transport Layer
+ *  @brief Low-level AT command send/receive and raw UART access.
+ *  @{
+ */
+
 /* -------------------------------------------------------------------------
  * Default timeouts (milliseconds)
  * ------------------------------------------------------------------------- */
@@ -137,6 +142,8 @@ int ec200_at_last_cme_error(const ec200_handle_t *h);
  * @return   Integer error code, or -1 if the last error was not CMS.
  */
 int ec200_at_last_cms_error(const ec200_handle_t *h);
+
+/** @} */ /* EC200_AT */
 
 #ifdef __cplusplus
 }
