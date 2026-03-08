@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_SMS SMS Messaging
+ *  @brief Set format, send, read, list, and delete SMS messages.
+ *  @{
+ */
+
 /**
  * @brief Set SMS message format (AT+CMGF).
  *
@@ -91,6 +96,8 @@ ec200_status_t ec200_sms_delete(ec200_handle_t *h, int index);
  * @return EC200_OK or an error code.
  */
 ec200_status_t ec200_sms_delete_all(ec200_handle_t *h, uint8_t flag);
+
+/** @} */ /* EC200_SMS */
 
 #ifdef __cplusplus
 }

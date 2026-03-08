@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_MQTT MQTT Client
+ *  @brief Open, connect, publish, subscribe, and disconnect MQTT sessions (AT+QMT*).
+ *  @{
+ */
+
 /**
  * @brief Open a TCP connection to the MQTT broker (AT+QMTOPEN).
  *
@@ -121,6 +126,8 @@ ec200_status_t ec200_mqtt_publish(ec200_handle_t  *h,
  */
 void ec200_mqtt_set_message_cb(ec200_handle_t   *h,
                                ec200_mqtt_msg_fn callback);
+
+/** @} */ /* EC200_MQTT */
 
 #ifdef __cplusplus
 }

@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_TCPIP TCP/IP Sockets
+ *  @brief Open, send, receive, and close TCP/UDP connections (AT+QI*).
+ *  @{
+ */
+
 /**
  * @brief Open a TCP or UDP socket (AT+QIOPEN).
  *
@@ -91,7 +96,7 @@ ec200_status_t ec200_tcp_get_state(ec200_handle_t *h,
                                    ec200_socket_t *sock);
 
 /**
- * @brief Query the number of bytes available to read on a connection (AT+QIRD=<conn_id>,0).
+ * @brief Query the number of bytes available to read on a connection (AT+QIRD=\<conn_id\>,0).
  *
  * @param h            Initialised library handle.
  * @param conn_id      Connection ID.
@@ -102,6 +107,8 @@ ec200_status_t ec200_tcp_get_state(ec200_handle_t *h,
 ec200_status_t ec200_tcp_bytes_available(ec200_handle_t *h,
                                          uint8_t         conn_id,
                                          uint32_t       *bytes_avail);
+
+/** @} */ /* EC200_TCPIP */
 
 #ifdef __cplusplus
 }

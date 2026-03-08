@@ -18,6 +18,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_Types Types and Definitions
+ *  @brief All shared types, enumerations, structures, and buffer-size constants.
+ *  @{
+ */
+
 /* -------------------------------------------------------------------------
  * Buffer sizes
  * ------------------------------------------------------------------------- */
@@ -391,6 +396,8 @@ typedef struct {
     int      _last_cme_error;         /**< Last +CME ERROR code             */
     int      _last_cms_error;         /**< Last +CMS ERROR code             */
 } ec200_handle_t;
+
+/** @} */ /* EC200_Types */
 
 #ifdef __cplusplus
 }

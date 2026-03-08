@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_Data PDP Context / Data Connection
+ *  @brief Configure and activate packet-data (PDP) contexts.
+ *  @{
+ */
+
 /**
  * @brief Configure a PDP context (AT+CGDCONT).
  *
@@ -24,7 +29,7 @@ ec200_status_t ec200_data_set_pdp(ec200_handle_t          *h,
                                   const ec200_pdp_context_t *ctx);
 
 /**
- * @brief Activate a PDP context (AT+CGACT=1,<cid>).
+ * @brief Activate a PDP context (AT+CGACT=1,\<cid\>).
  *
  * @param h    Initialised library handle.
  * @param cid  Context ID to activate (1-16).
@@ -34,7 +39,7 @@ ec200_status_t ec200_data_set_pdp(ec200_handle_t          *h,
 ec200_status_t ec200_data_activate(ec200_handle_t *h, uint8_t cid);
 
 /**
- * @brief Deactivate a PDP context (AT+CGACT=0,<cid>).
+ * @brief Deactivate a PDP context (AT+CGACT=0,\<cid\>).
  *
  * @param h    Initialised library handle.
  * @param cid  Context ID to deactivate.
@@ -71,6 +76,8 @@ ec200_status_t ec200_data_get_ip(ec200_handle_t *h,
  */
 ec200_status_t ec200_data_connect(ec200_handle_t    *h,
                                   ec200_pdp_context_t *ctx);
+
+/** @} */ /* EC200_Data */
 
 #ifdef __cplusplus
 }

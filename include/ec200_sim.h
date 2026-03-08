@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_SIM SIM Card Management
+ *  @brief Query PIN state, enter PIN, read IMSI and ICCID.
+ *  @{
+ */
+
 /**
  * @brief Query the SIM PIN status (AT+CPIN?).
  *
@@ -24,7 +29,7 @@ ec200_status_t ec200_sim_get_status(ec200_handle_t  *h,
                                     ec200_sim_status_t *status);
 
 /**
- * @brief Enter the SIM PIN (AT+CPIN=<pin>).
+ * @brief Enter the SIM PIN (AT+CPIN=\<pin\>).
  *
  * @param h    Initialised library handle.
  * @param pin  NUL-terminated PIN string.
@@ -58,6 +63,8 @@ ec200_status_t ec200_sim_get_imsi(ec200_handle_t *h,
 ec200_status_t ec200_sim_get_iccid(ec200_handle_t *h,
                                    char           *iccid,
                                    size_t          iccid_sz);
+
+/** @} */ /* EC200_SIM */
 
 #ifdef __cplusplus
 }

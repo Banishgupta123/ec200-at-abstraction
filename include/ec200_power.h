@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+/** @defgroup EC200_Power Power Management
+ *  @brief Set/get functional level, power down, sleep mode, and module reset (AT+CFUN/QPOWD/QSCLK).
+ *  @{
+ */
+
 /**
  * @brief Set module functional level (AT+CFUN).
  *
@@ -67,6 +72,8 @@ ec200_status_t ec200_power_set_sleep(ec200_handle_t *h, bool enable);
  *           re-initialise).
  */
 ec200_status_t ec200_power_reset(ec200_handle_t *h);
+
+/** @} */ /* EC200_Power */
 
 #ifdef __cplusplus
 }
