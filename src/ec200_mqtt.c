@@ -22,7 +22,7 @@
  * ------------------------------------------------------------------------- */
 
 /**
- * @brief Check the <result>/<err> field of a +QMTxxx result line.
+ * @brief Check the `<result>`/`<err>` field of a +QMTxxx result line.
  *
  * @param line   Result line, e.g. "+QMTOPEN: 0,0".
  * @param field  Zero-based index of the result field.

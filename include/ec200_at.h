@@ -230,7 +230,12 @@ ec200_status_t ec200_at_read_raw(ec200_handle_t *h,
 /**
  * @brief Read exactly @p len raw bytes, looping until done or deadline.
  *
+ * @param h          Library handle.
+ * @param buf        Buffer receiving the bytes.
+ * @param len        Exact number of bytes to read.
+ * @param timeout_ms Total deadline for the full transfer.
  * @param bytes_read Actual byte count on return (== @p len on EC200_OK).
+ *
  * @return EC200_OK, EC200_ERR_TIMEOUT (short read — @p bytes_read tells how
  *         far it got), or EC200_ERR_IO.
  */

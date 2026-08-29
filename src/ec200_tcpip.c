@@ -17,7 +17,7 @@ static const char * const sock_type_str[] = {
     [EC200_SOCK_UDP_SERVICE]  = "UDP SERVICE",
 };
 
-/** AT+QISTATE <socket_state> value meaning "connected". */
+/** AT+QISTATE `<socket_state>` value meaning "connected". */
 #define QISTATE_CONNECTED  (2)
 
 ec200_status_t ec200_tcp_open(ec200_handle_t    *h,

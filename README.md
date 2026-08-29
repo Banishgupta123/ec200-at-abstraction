@@ -284,6 +284,12 @@ cmake --build build-analyze --target ec200
 
 Both analyzers run clean on the current sources.
 
+## Documentation
+
+- [docs/api.md](docs/api.md) — curated API reference (types, contracts, per-module functions)
+- Full per-function documentation is generated from the headers:
+  `doxygen Doxyfile` → open `docs/html/index.html` (builds warning-free)
+
 ## License
 
 MIT — see individual file headers.
