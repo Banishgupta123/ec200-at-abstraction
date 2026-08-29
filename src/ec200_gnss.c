@@ -30,9 +30,11 @@ ec200_status_t ec200_gnss_get_status(ec200_handle_t *h, bool *enabled)
                                            EC200_AT_TIMEOUT_DEFAULT);
     if (st != EC200_OK) return st;
 
-    const char *p = strchr(resp, ':');
-    if (!p) return EC200_ERR_PARSE;
-    *enabled = (atoi(p + 1) == 1);
+    int state = 0;
+    if (ec200_at_parse_int_field(resp, 0U, &state) != EC200_OK) {
+        return EC200_ERR_PARSE;
+    }
+    *enabled = (state == 1);
     return EC200_OK;
 }
 
@@ -54,7 +56,7 @@ ec200_status_t ec200_gnss_get_location(ec200_handle_t       *h,
      *           <cog>,<spkm>,<spkn>,<date>,<nsat>
      */
     const char *p = strchr(resp, ':');
-    if (!p) return EC200_ERR_PARSE;
+    if (!p) return EC200_ERR_PARSE; /* GCOVR_EXCL_BR_LINE: prefix has ':' */
     p++; /* skip ':' */
     while (*p == ' ') p++;
 

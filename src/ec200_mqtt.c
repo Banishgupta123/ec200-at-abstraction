@@ -1,6 +1,13 @@
 /**
  * @file ec200_mqtt.c
  * @brief MQTT client implementation (AT+QMT*).
+ *
+ * All QMT commands are asynchronous on the EC200: the module acknowledges
+ * with "OK" and reports the outcome later as a `+QMTxxx:` URC, which is
+ * handled via ec200_at_send_await_urc().
+ *
+ * Publishing uses AT+QMTPUBEX (length-parameterised) rather than the
+ * Ctrl-Z-terminated AT+QMTPUB, so binary payloads containing 0x1A are safe.
  */
 
 #include "ec200_mqtt.h"
@@ -10,94 +17,176 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* -------------------------------------------------------------------------
+ * Internal helpers
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief Check the <result>/<err> field of a +QMTxxx result line.
+ *
+ * @param line   Result line, e.g. "+QMTOPEN: 0,0".
+ * @param field  Zero-based index of the result field.
+ */
+static ec200_status_t qmt_result(const char *line, unsigned field)
+{
+    int err = 0;
+    if (ec200_at_parse_int_field(line, field, &err) != EC200_OK) {
+        return EC200_ERR_PARSE;
+    }
+    return (err == 0) ? EC200_OK : EC200_ERR_MODULE;
+}
+
+/**
+ * @brief URC handler for "+QMTRECV:" — parses and forwards inbound messages.
+ *
+ * Registered with the AT layer by ec200_mqtt_set_message_cb(), so received
+ * publications are dispatched even when they arrive mid-command.
+ */
+static void mqtt_recv_urc(const char *line, void *ctx)
+{
+    ec200_handle_t *h = (ec200_handle_t *)ctx;
+    /* ctx is always the registering handle; the cb check is the live one. */
+    if (h == NULL || h->mqtt_msg_cb == NULL) { /* GCOVR_EXCL_BR_LINE */
+        return;
+    }
+
+    /*
+     * +QMTRECV: <client_idx>,<msg_id>,"<topic>","<payload>"
+     * The message struct is static (not stack) because it is ~1.6 KB and
+     * this handler can run from small polling tasks.  The library is
+     * single-threaded per handle by contract, so this is safe.
+     */
+    static ec200_mqtt_message_t msg;
+    msg.topic[0]    = '\0';
+    msg.payload_len = 0;
+    msg.qos         = EC200_MQTT_QOS0;
+
+    const char *p = strchr(line, '"');
+    if (p == NULL) {
+        return;
+    }
+    const char *q = strchr(p + 1, '"');
+    if (q == NULL) {
+        return;
+    }
+    size_t tlen = (size_t)(q - p - 1);
+    if (tlen >= sizeof(msg.topic)) {
+        tlen = sizeof(msg.topic) - 1U;
+    }
+    memcpy(msg.topic, p + 1, tlen);
+    msg.topic[tlen] = '\0';
+
+    p = strchr(q + 1, '"');
+    if (p != NULL) {
+        q = strrchr(p + 1, '"'); /* found => q >= p + 1 by construction */
+        if (q != NULL) {
+            size_t plen = (size_t)(q - p - 1);
+            if (plen > sizeof(msg.payload)) {
+                plen = sizeof(msg.payload);
+            }
+            memcpy(msg.payload, p + 1, plen);
+            msg.payload_len = (uint32_t)plen;
+        }
+    }
+
+    h->mqtt_msg_cb(&msg, h->user_ctx);
+}
+
+/* -------------------------------------------------------------------------
+ * Public API
+ * ------------------------------------------------------------------------- */
+
 ec200_status_t ec200_mqtt_open(ec200_handle_t          *h,
                                const ec200_mqtt_config_t *cfg)
 {
-    if (!cfg) return EC200_ERR_PARAM;
+    if (!cfg || cfg->host[0] == '\0') {
+        return EC200_ERR_PARAM;
+    }
 
     char cmd[EC200_MAX_URL_LEN + 32];
-    snprintf(cmd, sizeof(cmd),
-             "AT+QMTOPEN=%u,\"%s\",%u",
-             (unsigned)cfg->tcp_connect_id,
-             cfg->host,
-             (unsigned)cfg->port);
+    (void)snprintf(cmd, sizeof(cmd),
+                   "AT+QMTOPEN=%u,\"%s\",%u",
+                   (unsigned)cfg->tcp_connect_id,
+                   cfg->host,
+                   (unsigned)cfg->port);
 
     char resp[64];
-    ec200_status_t st = ec200_at_send_wait(h, cmd, "+QMTOPEN:",
-                                           resp, sizeof(resp),
-                                           EC200_AT_TIMEOUT_LONG);
-    if (st != EC200_OK) return st;
-
+    ec200_status_t st = ec200_at_send_await_urc(h, cmd, "+QMTOPEN:",
+                                                resp, sizeof(resp),
+                                                EC200_AT_TIMEOUT_DEFAULT,
+                                                EC200_AT_TIMEOUT_LONG);
+    if (st != EC200_OK) {
+        return st;
+    }
     /* +QMTOPEN: <tcp_connectID>,<err>  (0 = success) */
-    const char *comma = strchr(resp, ',');
-    if (!comma) return EC200_ERR_PARSE;
-    int err = atoi(comma + 1);
-    return (err == 0) ? EC200_OK : EC200_ERR_UNKNOWN;
+    return qmt_result(resp, 1U);
 }
 
 ec200_status_t ec200_mqtt_connect(ec200_handle_t          *h,
                                   const ec200_mqtt_config_t *cfg)
 {
-    if (!cfg) return EC200_ERR_PARAM;
+    if (!cfg || cfg->client_id[0] == '\0') {
+        return EC200_ERR_PARAM;
+    }
 
     char cmd[256];
     if (cfg->username[0] != '\0') {
-        snprintf(cmd, sizeof(cmd),
-                 "AT+QMTCONN=%u,\"%s\",\"%s\",\"%s\"",
-                 (unsigned)cfg->client_idx,
-                 cfg->client_id,
-                 cfg->username,
-                 cfg->password);
+        (void)snprintf(cmd, sizeof(cmd),
+                       "AT+QMTCONN=%u,\"%s\",\"%s\",\"%s\"",
+                       (unsigned)cfg->client_idx,
+                       cfg->client_id,
+                       cfg->username,
+                       cfg->password);
     } else {
-        snprintf(cmd, sizeof(cmd),
-                 "AT+QMTCONN=%u,\"%s\"",
-                 (unsigned)cfg->client_idx,
-                 cfg->client_id);
+        (void)snprintf(cmd, sizeof(cmd),
+                       "AT+QMTCONN=%u,\"%s\"",
+                       (unsigned)cfg->client_idx,
+                       cfg->client_id);
     }
 
     char resp[64];
-    ec200_status_t st = ec200_at_send_wait(h, cmd, "+QMTCONN:",
-                                           resp, sizeof(resp),
-                                           EC200_AT_TIMEOUT_LONG);
-    if (st != EC200_OK) return st;
-
+    ec200_status_t st = ec200_at_send_await_urc(h, cmd, "+QMTCONN:",
+                                                resp, sizeof(resp),
+                                                EC200_AT_TIMEOUT_DEFAULT,
+                                                EC200_AT_TIMEOUT_LONG);
+    if (st != EC200_OK) {
+        return st;
+    }
     /* +QMTCONN: <client_idx>,<result>[,<ret_code>]  (result 0 = accepted) */
-    const char *comma = strchr(resp, ',');
-    if (!comma) return EC200_ERR_PARSE;
-    int result = atoi(comma + 1);
-    return (result == 0) ? EC200_OK : EC200_ERR_UNKNOWN;
+    return qmt_result(resp, 1U);
 }
 
 ec200_status_t ec200_mqtt_disconnect(ec200_handle_t *h, uint8_t client_idx)
 {
     char cmd[32];
-    snprintf(cmd, sizeof(cmd), "AT+QMTDISC=%u", (unsigned)client_idx);
+    (void)snprintf(cmd, sizeof(cmd), "AT+QMTDISC=%u", (unsigned)client_idx);
 
     char resp[64];
-    ec200_status_t st = ec200_at_send_wait(h, cmd, "+QMTDISC:",
-                                           resp, sizeof(resp),
-                                           EC200_AT_TIMEOUT_LONG);
-    if (st != EC200_OK) return st;
-
-    const char *comma = strchr(resp, ',');
-    if (!comma) return EC200_ERR_PARSE;
-    return (atoi(comma + 1) == 0) ? EC200_OK : EC200_ERR_UNKNOWN;
+    ec200_status_t st = ec200_at_send_await_urc(h, cmd, "+QMTDISC:",
+                                                resp, sizeof(resp),
+                                                EC200_AT_TIMEOUT_DEFAULT,
+                                                EC200_AT_TIMEOUT_LONG);
+    if (st != EC200_OK) {
+        return st;
+    }
+    return qmt_result(resp, 1U);
 }
 
 ec200_status_t ec200_mqtt_close(ec200_handle_t *h, uint8_t tcp_connect_id)
 {
     char cmd[32];
-    snprintf(cmd, sizeof(cmd), "AT+QMTCLOSE=%u", (unsigned)tcp_connect_id);
+    (void)snprintf(cmd, sizeof(cmd), "AT+QMTCLOSE=%u",
+                   (unsigned)tcp_connect_id);
 
     char resp[64];
-    ec200_status_t st = ec200_at_send_wait(h, cmd, "+QMTCLOSE:",
-                                           resp, sizeof(resp),
-                                           EC200_AT_TIMEOUT_LONG);
-    if (st != EC200_OK) return st;
-
-    const char *comma = strchr(resp, ',');
-    if (!comma) return EC200_ERR_PARSE;
-    return (atoi(comma + 1) == 0) ? EC200_OK : EC200_ERR_UNKNOWN;
+    ec200_status_t st = ec200_at_send_await_urc(h, cmd, "+QMTCLOSE:",
+                                                resp, sizeof(resp),
+                                                EC200_AT_TIMEOUT_DEFAULT,
+                                                EC200_AT_TIMEOUT_LONG);
+    if (st != EC200_OK) {
+        return st;
+    }
+    return qmt_result(resp, 1U);
 }
 
 ec200_status_t ec200_mqtt_subscribe(ec200_handle_t  *h,
@@ -106,29 +195,29 @@ ec200_status_t ec200_mqtt_subscribe(ec200_handle_t  *h,
                                     const char      *topic,
                                     ec200_mqtt_qos_t qos)
 {
-    if (!topic) return EC200_ERR_PARAM;
+    if (!topic || topic[0] == '\0' ||
+        strlen(topic) >= EC200_MAX_TOPIC_LEN || msg_id == 0U) {
+        return EC200_ERR_PARAM;
+    }
 
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd),
-             "AT+QMTSUB=%u,%u,\"%s\",%u",
-             (unsigned)client_idx,
-             (unsigned)msg_id,
-             topic,
-             (unsigned)qos);
+    char cmd[EC200_MAX_TOPIC_LEN + 48];
+    (void)snprintf(cmd, sizeof(cmd),
+                   "AT+QMTSUB=%u,%u,\"%s\",%u",
+                   (unsigned)client_idx,
+                   (unsigned)msg_id,
+                   topic,
+                   (unsigned)qos);
 
     char resp[128];
-    ec200_status_t st = ec200_at_send_wait(h, cmd, "+QMTSUB:",
-                                           resp, sizeof(resp),
-                                           EC200_AT_TIMEOUT_LONG);
-    if (st != EC200_OK) return st;
-
+    ec200_status_t st = ec200_at_send_await_urc(h, cmd, "+QMTSUB:",
+                                                resp, sizeof(resp),
+                                                EC200_AT_TIMEOUT_DEFAULT,
+                                                EC200_AT_TIMEOUT_LONG);
+    if (st != EC200_OK) {
+        return st;
+    }
     /* +QMTSUB: <client_idx>,<msg_id>,<result>[,<value>]  (result 0 = ok) */
-    /* Skip two commas to get result */
-    const char *p = strchr(resp, ',');
-    if (!p) return EC200_ERR_PARSE;
-    p = strchr(p + 1, ',');
-    if (!p) return EC200_ERR_PARSE;
-    return (atoi(p + 1) == 0) ? EC200_OK : EC200_ERR_UNKNOWN;
+    return qmt_result(resp, 2U);
 }
 
 ec200_status_t ec200_mqtt_unsubscribe(ec200_handle_t *h,
@@ -136,26 +225,27 @@ ec200_status_t ec200_mqtt_unsubscribe(ec200_handle_t *h,
                                       uint16_t        msg_id,
                                       const char     *topic)
 {
-    if (!topic) return EC200_ERR_PARAM;
+    if (!topic || topic[0] == '\0' ||
+        strlen(topic) >= EC200_MAX_TOPIC_LEN || msg_id == 0U) {
+        return EC200_ERR_PARAM;
+    }
 
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd),
-             "AT+QMTUNS=%u,%u,\"%s\"",
-             (unsigned)client_idx,
-             (unsigned)msg_id,
-             topic);
+    char cmd[EC200_MAX_TOPIC_LEN + 48];
+    (void)snprintf(cmd, sizeof(cmd),
+                   "AT+QMTUNS=%u,%u,\"%s\"",
+                   (unsigned)client_idx,
+                   (unsigned)msg_id,
+                   topic);
 
     char resp[128];
-    ec200_status_t st = ec200_at_send_wait(h, cmd, "+QMTUNS:",
-                                           resp, sizeof(resp),
-                                           EC200_AT_TIMEOUT_LONG);
-    if (st != EC200_OK) return st;
-
-    const char *p = strchr(resp, ',');
-    if (!p) return EC200_ERR_PARSE;
-    p = strchr(p + 1, ',');
-    if (!p) return EC200_ERR_PARSE;
-    return (atoi(p + 1) == 0) ? EC200_OK : EC200_ERR_UNKNOWN;
+    ec200_status_t st = ec200_at_send_await_urc(h, cmd, "+QMTUNS:",
+                                                resp, sizeof(resp),
+                                                EC200_AT_TIMEOUT_DEFAULT,
+                                                EC200_AT_TIMEOUT_LONG);
+    if (st != EC200_OK) {
+        return st;
+    }
+    return qmt_result(resp, 2U);
 }
 
 ec200_status_t ec200_mqtt_publish(ec200_handle_t  *h,
@@ -167,64 +257,63 @@ ec200_status_t ec200_mqtt_publish(ec200_handle_t  *h,
                                   const uint8_t   *payload,
                                   uint32_t         payload_len)
 {
-    if (!topic || !payload) return EC200_ERR_PARAM;
-
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd),
-             "AT+QMTPUB=%u,%u,%u,%u,\"%s\"",
-             (unsigned)client_idx,
-             (unsigned)msg_id,
-             (unsigned)qos,
-             retain ? 1U : 0U,
-             topic);
-
-    /* Send command, wait for ">" prompt */
-    int cmdlen = snprintf(h->_tx_buf, sizeof(h->_tx_buf), "%s\r\n", cmd);
-    if (cmdlen < 0 || (size_t)cmdlen >= sizeof(h->_tx_buf)) {
-        return EC200_ERR_OVERFLOW;
+    if (!topic || topic[0] == '\0' ||
+        strlen(topic) >= EC200_MAX_TOPIC_LEN) {
+        return EC200_ERR_PARAM;
     }
-    int n = h->write((const uint8_t *)h->_tx_buf, (uint16_t)cmdlen, h->user_ctx);
-    if (n < 0) return EC200_ERR_IO;
-
-    uint8_t ch;
-    bool got_prompt = false;
-    for (int i = 0; i < 300; i++) {
-        int r = h->read(&ch, 1, 100U, h->user_ctx);
-        if (r > 0 && ch == '>') {
-            got_prompt = true;
-            break;
-        }
+    if (!payload || payload_len == 0U ||
+        payload_len > EC200_MAX_PAYLOAD_LEN) {
+        return EC200_ERR_PARAM; /* refuse to silently truncate */
     }
-    if (!got_prompt) return EC200_ERR_TIMEOUT;
+    if (qos != EC200_MQTT_QOS0 && msg_id == 0U) {
+        return EC200_ERR_PARAM; /* QoS > 0 requires a message ID */
+    }
 
-    /* Send payload then Ctrl-Z */
-    if (payload_len > EC200_MAX_PAYLOAD_LEN) payload_len = EC200_MAX_PAYLOAD_LEN;
-    n = h->write(payload, (uint16_t)payload_len, h->user_ctx);
-    if (n < 0) return EC200_ERR_IO;
+    /*
+     * AT+QMTPUBEX takes the payload length up front and reads exactly that
+     * many raw bytes after the ">" prompt — no Ctrl-Z terminator, so 0x1A
+     * bytes inside binary payloads are transmitted verbatim.
+     */
+    char cmd[EC200_MAX_TOPIC_LEN + 64];
+    (void)snprintf(cmd, sizeof(cmd),
+                   "AT+QMTPUBEX=%u,%u,%u,%u,\"%s\",%u",
+                   (unsigned)client_idx,
+                   (unsigned)msg_id,
+                   (unsigned)qos,
+                   retain ? 1U : 0U,
+                   topic,
+                   (unsigned)payload_len);
 
-    uint8_t ctrlz = 0x1A;
-    n = h->write(&ctrlz, 1, h->user_ctx);
-    if (n < 0) return EC200_ERR_IO;
+    ec200_status_t st = ec200_at_send_prompt(h, cmd, EC200_AT_TIMEOUT_DEFAULT);
+    if (st != EC200_OK) {
+        return st;
+    }
 
-    /* Wait for +QMTPUB: response */
+    st = ec200_at_write_raw(h, payload, (uint16_t)payload_len);
+    if (st != EC200_OK) {
+        return st;
+    }
+
+    /* "OK" is emitted first, then "+QMTPUBEX: <idx>,<msg_id>,<result>". */
     char resp[128];
-    ec200_status_t st = ec200_at_send_wait(h, "", "+QMTPUB:",
-                                           resp, sizeof(resp),
-                                           EC200_AT_TIMEOUT_LONG);
-    if (st != EC200_OK) return st;
-
-    /* +QMTPUB: <client_idx>,<msg_id>,<result>  (result 0 = ok) */
-    const char *p = strchr(resp, ',');
-    if (!p) return EC200_ERR_PARSE;
-    p = strchr(p + 1, ',');
-    if (!p) return EC200_ERR_PARSE;
-    return (atoi(p + 1) == 0) ? EC200_OK : EC200_ERR_UNKNOWN;
+    st = ec200_at_wait_prefix(h, "+QMTPUBEX:", resp, sizeof(resp),
+                              EC200_AT_TIMEOUT_LONG);
+    if (st != EC200_OK) {
+        return st;
+    }
+    return qmt_result(resp, 2U);
 }
 
 void ec200_mqtt_set_message_cb(ec200_handle_t   *h,
                                ec200_mqtt_msg_fn callback)
 {
-    if (h) {
-        h->mqtt_msg_cb = callback;
+    if (h == NULL) {
+        return;
+    }
+    h->mqtt_msg_cb = callback;
+    if (callback != NULL) {
+        (void)ec200_at_register_urc(h, "+QMTRECV:", mqtt_recv_urc, h);
+    } else {
+        (void)ec200_at_unregister_urc(h, "+QMTRECV:");
     }
 }
