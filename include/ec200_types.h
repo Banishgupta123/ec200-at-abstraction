@@ -26,7 +26,12 @@ extern "C" {
 /* -------------------------------------------------------------------------
  * Buffer sizes
  * ------------------------------------------------------------------------- */
-#define EC200_RX_BUFFER_SIZE      (1024U)   /**< Receive ring-buffer size (bytes) */
+/**
+ * Receive line-assembly buffer size.  Must exceed the longest URC line the
+ * module can produce: +QMTRECV with a full EC200_MAX_PAYLOAD_LEN payload is
+ * ~1.5 KB, so 2 KB leaves headroom.
+ */
+#define EC200_RX_BUFFER_SIZE      (2048U)
 #define EC200_TX_BUFFER_SIZE      (512U)    /**< Transmit scratch-buffer size     */
 #define EC200_MAX_OPERATOR_LEN    (32U)     /**< Max operator name string length  */
 #define EC200_MAX_PHONE_NUM_LEN   (20U)     /**< Max phone-number string length   */
@@ -40,6 +45,7 @@ extern "C" {
 #define EC200_MAX_TOPIC_LEN       (128U)    /**< Max MQTT topic length            */
 #define EC200_MAX_PAYLOAD_LEN     (1460U)   /**< Max MQTT/TCP payload length      */
 #define EC200_MAX_CONNECTIONS     (12U)     /**< Max simultaneous TCP connections */
+#define EC200_MAX_URC_HANDLERS    (8U)      /**< Max registered URC prefix handlers */
 
 /* -------------------------------------------------------------------------
  * Status / return codes
@@ -57,8 +63,9 @@ typedef enum {
     EC200_ERR_BUSY        = -6,   /**< Resource is currently in use            */
     EC200_ERR_PARAM       = -7,   /**< Invalid function argument               */
     EC200_ERR_NOT_READY   = -8,   /**< Module not yet initialised              */
-    EC200_ERR_OVERFLOW    = -9,   /**< Internal buffer overflow                */
+    EC200_ERR_OVERFLOW    = -9,   /**< Internal buffer overflow / line cap hit */
     EC200_ERR_UNSUPPORTED = -10,  /**< Feature not available on this firmware  */
+    EC200_ERR_MODULE      = -11,  /**< Module reported a command-specific error */
     EC200_ERR_UNKNOWN     = -99,  /**< Unclassified error                      */
 } ec200_status_t;
 
@@ -67,13 +74,26 @@ typedef enum {
  * ------------------------------------------------------------------------- */
 /**
  * @brief Write @p len bytes from @p data to the UART.
- * @return Number of bytes actually written, or <0 on error.
+ *
+ * A short write (0 <= return < @p len) is allowed; the library retries the
+ * remainder.
+ *
+ * @return Number of bytes actually accepted (>= 0), or < 0 on a fatal I/O
+ *         error.
  */
 typedef int (*ec200_write_fn)(const uint8_t *data, uint16_t len, void *user_ctx);
 
 /**
  * @brief Read up to @p len bytes into @p data, waiting at most @p timeout_ms.
- * @return Number of bytes actually read, or <0 on error.
+ *
+ * The callback should block until at least one byte is available or the
+ * timeout expires.
+ *
+ * @return Number of bytes actually read (> 0), 0 if the timeout expired with
+ *         no data available, or < 0 on a fatal I/O error (e.g. UART fault).
+ *
+ * @note Returning 0 for a timeout (rather than a negative value) is required
+ *       for the library to distinguish EC200_ERR_TIMEOUT from EC200_ERR_IO.
  */
 typedef int (*ec200_read_fn)(uint8_t *data, uint16_t len, uint32_t timeout_ms, void *user_ctx);
 
@@ -83,14 +103,24 @@ typedef int (*ec200_read_fn)(uint8_t *data, uint16_t len, uint32_t timeout_ms, v
 typedef void (*ec200_delay_fn)(uint32_t ms, void *user_ctx);
 
 /**
- * @brief Optional URC (unsolicited result code) callback invoked by the AT
- *        engine whenever an unrecognised line arrives outside of a command
- *        transaction.
+ * @brief URC (unsolicited result code) callback.
  *
- * @param urc       NUL-terminated URC string (valid only for this call).
- * @param user_ctx  Opaque pointer forwarded from ec200_handle_t::user_ctx.
+ * Used both for the generic fallback handler (ec200_set_urc_handler()) and
+ * for prefix-registered handlers (ec200_at_register_urc()).
+ *
+ * @param urc       NUL-terminated URC line (valid only for this call).
+ * @param user_ctx  Opaque pointer supplied at registration time.
  */
 typedef void (*ec200_urc_handler_fn)(const char *urc, void *user_ctx);
+
+/**
+ * @brief One entry of the registered-URC dispatch table (internal).
+ */
+typedef struct {
+    const char           *prefix;   /**< Line prefix to match (e.g. "+QMTRECV:"); NULL = free slot */
+    ec200_urc_handler_fn  handler;  /**< Callback invoked with the full line   */
+    void                 *ctx;      /**< Opaque pointer passed to the handler  */
+} ec200_urc_entry_t;
 
 /* -------------------------------------------------------------------------
  * Network registration / status types
@@ -153,14 +183,17 @@ typedef struct {
 } ec200_operator_info_t;
 
 /**
- * @brief Signal quality returned by AT+CSQ.
+ * @brief Signal quality returned by AT+CSQ / AT+QCSQ.
  */
 typedef struct {
-    int8_t  rssi;  /**< RSSI in dBm (-113 to -51, or 0 for unknown)  */
-    uint8_t ber;   /**< Bit error rate (0-7, 99 = unknown)            */
-    uint8_t rsrp;  /**< LTE RSRP (0-96, 255 = unknown) from AT+QCSQ  */
-    int8_t  sinr;  /**< LTE SINR in dB (from AT+QCSQ)                */
+    int16_t rssi;  /**< RSSI in dBm (-113 to -51), or 0 if unknown         */
+    uint8_t ber;   /**< Bit error rate (0-7, 99 = unknown)                  */
+    int16_t rsrp;  /**< LTE RSRP in dBm (negative; INT16_MIN = unknown)     */
+    int16_t sinr;  /**< LTE SINR (raw AT+QCSQ value; INT16_MIN = unknown)   */
 } ec200_signal_quality_t;
+
+/** Sentinel for "value not available" in ec200_signal_quality_t. */
+#define EC200_SIGNAL_UNKNOWN  ((int16_t)-32768)
 
 /* -------------------------------------------------------------------------
  * SIM types
@@ -225,6 +258,9 @@ typedef enum {
 
 /**
  * @brief PDP context configuration.
+ *
+ * When @ref username is non-empty the library also issues AT+QICSGP with
+ * PAP/CHAP authentication so the credentials actually take effect.
  */
 typedef struct {
     uint8_t       cid;                       /**< Context ID (1-16)          */
@@ -258,15 +294,14 @@ typedef enum {
 } ec200_access_mode_t;
 
 /**
- * @brief Per-socket state.
+ * @brief Per-socket state (as reported by AT+QISTATE).
  */
 typedef struct {
     int              conn_id;                         /**< Connection ID (0-11)         */
     ec200_sock_type_t type;                           /**< TCP / UDP                    */
     char             remote_host[EC200_MAX_URL_LEN];  /**< Remote host / IP             */
     uint16_t         remote_port;                     /**< Remote port                  */
-    bool             connected;                       /**< Connection open flag         */
-    uint32_t         bytes_received;                  /**< Total bytes received counter */
+    bool             connected;                       /**< Socket state == connected    */
 } ec200_socket_t;
 
 /* -------------------------------------------------------------------------
@@ -350,7 +385,7 @@ typedef struct {
     float    speed_kmh;       /**< Speed over ground (km/h)          */
     float    course;          /**< Course over ground (degrees)      */
     uint8_t  satellites_used; /**< Satellites used in fix            */
-    uint8_t  hdop;            /**< Horizontal dilution of precision  */
+    uint8_t  hdop;            /**< Horizontal dilution of precision (tenths) */
     char     utc_time[40];    /**< UTC date/time string              */
 } ec200_gnss_location_t;
 
@@ -374,7 +409,10 @@ typedef enum {
  * @brief Library handle.  One instance per physical module.
  *
  * Initialise with ec200_init() before using any other API.
- * All fields except the four callbacks should be treated as opaque.
+ * All fields except the transport callbacks should be treated as opaque.
+ *
+ * @note The library is not thread-safe: all calls on one handle must come
+ *       from a single task/thread (URC polling included).
  */
 typedef struct {
     /* --- User-supplied transport layer ----------------------------------- */
@@ -384,12 +422,15 @@ typedef struct {
     void                *user_ctx;    /**< Forwarded to all callbacks        */
 
     /* --- Optional callbacks --------------------------------------------- */
-    ec200_urc_handler_fn urc_handler; /**< URC callback (NULL = ignore)     */
+    ec200_urc_handler_fn urc_handler; /**< Fallback URC callback (NULL = ignore) */
     ec200_mqtt_msg_fn    mqtt_msg_cb; /**< MQTT message callback            */
 
-    /* --- Internal buffers (do not access directly) ----------------------- */
-    char     _rx_buf[EC200_RX_BUFFER_SIZE];  /**< Raw receive buffer        */
+    /* --- Internal state (do not access directly) ------------------------- */
+    char     _rx_buf[EC200_RX_BUFFER_SIZE];  /**< Line-assembly buffer      */
+    uint16_t _rx_len;                        /**< Bytes held in _rx_buf     */
+    bool     _rx_overlong;                   /**< Current line exceeded buffer */
     char     _tx_buf[EC200_TX_BUFFER_SIZE];  /**< Command scratch buffer    */
+    ec200_urc_entry_t _urc_table[EC200_MAX_URC_HANDLERS]; /**< URC dispatch */
 
     /* --- Cached state ---------------------------------------------------- */
     bool     _initialised;            /**< Set by ec200_init()              */

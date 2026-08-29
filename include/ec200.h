@@ -23,8 +23,9 @@
  * @section intro_sec Introduction
  *
  * A platform-independent C99 abstraction layer for **Quectel EC200U** cellular
- * modules.  The library wraps the full AT command set into a clean, type-safe
- * API with no dependency on any specific MCU or RTOS.
+ * modules.  The library wraps the AT command set into a clean, type-safe API
+ * with no dependency on any specific MCU or RTOS, no dynamic allocation, and
+ * shallow stack frames (~2.6 KB RAM per handle).
  *
  * @section arch_sec Architecture
  *
@@ -47,6 +48,15 @@
  *  └────────────────────────────────────────┘
  * @endcode
  *
+ * The AT engine (@ref EC200_AT) models the response shapes the module
+ * actually produces — plain `OK` transactions, prefixed responses, raw-data
+ * phases, asynchronous OK-then-URC commands, and `>` data prompts — as
+ * explicit primitives, so the domain modules never re-implement transport
+ * logic.  Only complete lines ever reach parsers (partial reads stay
+ * buffered), every wait is bounded by a deadline budget plus a line cap, and
+ * URC lines registered with ec200_at_register_urc() are dispatched even when
+ * they arrive in the middle of another command.
+ *
  * @section qs_sec Quick Start
  *
  * @subsection qs1 1. Implement the platform wrapper
@@ -54,6 +64,7 @@
  * static int my_uart_write(const uint8_t *data, uint16_t len, void *ctx) {
  *     return HAL_UART_Transmit(&huart2, data, len, 1000) == HAL_OK ? len : -1;
  * }
+ * // Contract: >0 = bytes read, 0 = timeout (no data), <0 = fatal fault only
  * static int my_uart_read(uint8_t *data, uint16_t len,
  *                         uint32_t timeout_ms, void *ctx) {
  *     return uart_ring_buf_read(data, len, timeout_ms);
@@ -66,14 +77,16 @@
  * ec200_handle_t modem;
  * ec200_status_t st = ec200_init(&modem, my_uart_write, my_uart_read,
  *                                my_delay_ms, NULL);
+ * // init probes the module and disables command echo (ATE0)
  * @endcode
  *
  * @subsection qs3 3. Use the API
  * @code
- * ec200_set_echo(&modem, false);
  * ec200_net_wait_registered(&modem, 60000);
  * ec200_pdp_context_t pdp = { .cid=1, .type=EC200_PDP_TYPE_IP, .apn="internet" };
  * ec200_data_connect(&modem, &pdp);
+ * // ...and poll for unsolicited events from your main loop:
+ * ec200_at_poll_urc(&modem, 0);
  * @endcode
  *
  * @section modules_sec API Modules
@@ -82,14 +95,14 @@
  * |--------------------|---------------------|------------------------------------|
  * | @ref EC200_Core    | ec200.h             | Init, IMEI, firmware, echo, CMEE   |
  * | @ref EC200_Types   | ec200_types.h       | Types, enums, structs, constants   |
- * | @ref EC200_AT      | ec200_at.h          | Low-level AT transport             |
+ * | @ref EC200_AT      | ec200_at.h          | AT engine: primitives, URC registry |
  * | @ref EC200_SIM     | ec200_sim.h         | SIM PIN/IMSI/ICCID                 |
  * | @ref EC200_Network | ec200_network.h     | Registration, signal, operator     |
  * | @ref EC200_SMS     | ec200_sms.h         | Send, read, list, delete SMS       |
- * | @ref EC200_Data    | ec200_data.h        | PDP context / data connection      |
+ * | @ref EC200_Data    | ec200_data.h        | PDP context / auth / data connection |
  * | @ref EC200_TCPIP   | ec200_tcpip.h       | TCP/UDP sockets                    |
  * | @ref EC200_HTTP    | ec200_http.h        | HTTP client                        |
- * | @ref EC200_MQTT    | ec200_mqtt.h        | MQTT client                        |
+ * | @ref EC200_MQTT    | ec200_mqtt.h        | MQTT client (binary-safe publish)  |
  * | @ref EC200_GNSS    | ec200_gnss.h        | GNSS/GPS location                  |
  * | @ref EC200_Power   | ec200_power.h       | Power management                   |
  *
@@ -98,14 +111,23 @@
  * Every API function returns ::ec200_status_t.  Use ec200_status_str() to
  * convert a code to a human-readable string.  After EC200_ERR_CME or
  * EC200_ERR_CMS, call ec200_at_last_cme_error() / ec200_at_last_cms_error()
- * to retrieve the raw numeric error code from the module.
+ * to retrieve the raw numeric error code from the module; the error state is
+ * reset at the start of every command.  EC200_ERR_MODULE indicates a plain
+ * `ERROR` line or a nonzero command-specific result code.
  *
- * @section build_sec Building
+ * @section thread_sec Threading Model
+ *
+ * The library is not thread-safe: all calls on one handle — URC polling
+ * included — must come from a single task/thread.  In RTOS designs, dedicate
+ * a modem task that owns the handle and serialise requests to it.
+ *
+ * @section build_sec Building & Testing
  * @code
- * mkdir build && cd build
- * cmake ..
- * cmake --build .
- * ctest
+ * cmake -S . -B build
+ * cmake --build build
+ * ctest --test-dir build                  // Unity/CMock host tests
+ * cmake --build build --target coverage   // gcov/gcovr report
+ * cmake --build build --target cppcheck   // static analysis
  * @endcode
  */
 

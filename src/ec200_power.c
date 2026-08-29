@@ -33,9 +33,11 @@ ec200_status_t ec200_power_get_cfun(ec200_handle_t *h, ec200_cfun_t *level)
                                            EC200_AT_TIMEOUT_DEFAULT);
     if (st != EC200_OK) return st;
 
-    const char *p = strchr(resp, ':');
-    if (!p) return EC200_ERR_PARSE;
-    *level = (ec200_cfun_t)atoi(p + 1);
+    int val = 0;
+    if (ec200_at_parse_int_field(resp, 0U, &val) != EC200_OK) {
+        return EC200_ERR_PARSE;
+    }
+    *level = (ec200_cfun_t)val;
     return EC200_OK;
 }
 

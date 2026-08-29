@@ -1,0 +1,11 @@
+:cmock:
+  :mock_path: 'mocks'
+  :mock_prefix: 'mock_'
+  :when_no_prototypes: :warn
+  :treat_externs: :exclude
+  :fail_on_unexpected_calls: true
+  :plugins:
+    - :ignore
+    - :expect_any_args
+    - :return_thru_ptr
+    - :callback

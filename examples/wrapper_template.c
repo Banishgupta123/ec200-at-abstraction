@@ -59,7 +59,14 @@ static int my_uart_write(const uint8_t *data, uint16_t len, void *user_ctx)
  * @brief UART read callback.
  *
  * Read up to @p len bytes into @p data, waiting at most @p timeout_ms ms.
- * Return the number of bytes received (0 is acceptable), or -1 on error.
+ *
+ * Contract (important):
+ *  - return > 0  : number of bytes received
+ *  - return   0  : timeout expired with no data (NOT an error)
+ *  - return < 0  : fatal I/O error only (UART fault, driver failure)
+ *
+ * Returning 0 on timeout lets the library distinguish EC200_ERR_TIMEOUT
+ * from EC200_ERR_IO.
  */
 static int my_uart_read(uint8_t *data, uint16_t len,
                         uint32_t timeout_ms, void *user_ctx)
@@ -141,8 +148,7 @@ int main(void)
     /* Register URC handler (optional) */
     ec200_set_urc_handler(&g_ec200, my_urc_handler);
 
-    /* Disable echo and enable verbose error reporting */
-    ec200_set_echo(&g_ec200, false);
+    /* Enable verbose error reporting (echo is already disabled by init) */
     ec200_set_cmee(&g_ec200, 2);
 
     /* ------------------------------------------------------------------ */
@@ -208,9 +214,11 @@ int main(void)
                http_resp.status_code,
                (unsigned long)http_resp.content_length);
 
+        /* Reserve one byte for the NUL terminator: pass sizeof(body) - 1 so
+         * body[body_len] is always a valid write. */
         uint8_t body[512];
         uint32_t body_len = 0;
-        if (ec200_http_read(&g_ec200, body, sizeof(body),
+        if (ec200_http_read(&g_ec200, body, sizeof(body) - 1U,
                             &body_len, 10000) == EC200_OK) {
             body[body_len] = '\0';
             printf("Body: %s\n", (char *)body);

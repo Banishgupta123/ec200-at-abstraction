@@ -1,22 +1,50 @@
-cmake_minimum_required(VERSION 3.14)
-project(ec200_at_abstraction C)
+cmake_minimum_required(VERSION 3.18)
+project(ec200_at_abstraction LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+option(EC200_BUILD_TESTS "Build the Unity/CMock unit tests" ON)
+option(EC200_WERROR     "Treat warnings as errors"          ON)
+option(EC200_COVERAGE   "Instrument for gcov coverage"      OFF)
+option(EC200_ANALYZER   "Enable GCC -fanalyzer static analysis" OFF)
 
 # ---------------------------------------------------------------------------
-# Compiler warnings
+# Strict warnings (applied to first-party targets only, not fetched deps)
 # ---------------------------------------------------------------------------
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(
-        -Wall
-        -Wextra
-        -Wpedantic
-        -Wshadow
-        -Wconversion
-        -Wdouble-promotion
-        -Wno-unused-parameter
-    )
+function(ec200_strict_warnings tgt)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${tgt} PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wshadow
+            -Wdouble-promotion
+            -Wundef
+            -Wstrict-prototypes
+        )
+        if(EC200_WERROR)
+            target_compile_options(${tgt} PRIVATE -Werror)
+        endif()
+    elseif(MSVC)
+        target_compile_options(${tgt} PRIVATE /W4)
+        if(EC200_WERROR)
+            target_compile_options(${tgt} PRIVATE /WX)
+        endif()
+    endif()
+endfunction()
+
+# ---------------------------------------------------------------------------
+# Coverage instrumentation
+# ---------------------------------------------------------------------------
+if(EC200_COVERAGE)
+    if(NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "EC200_COVERAGE requires GCC (gcov)")
+    endif()
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -35,29 +63,143 @@ add_library(ec200 STATIC
     src/ec200_gnss.c
     src/ec200_power.c
 )
-
 target_include_directories(ec200 PUBLIC include)
+ec200_strict_warnings(ec200)
 
-# Link math library if needed (used by ec200_gnss.c for nmea_to_decimal)
-target_link_libraries(ec200 PUBLIC m)
+# The library itself gets the harshest conversion checking.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(ec200 PRIVATE -Wconversion)
+endif()
 
-# ---------------------------------------------------------------------------
-# Unit-test executable
-# ---------------------------------------------------------------------------
-enable_testing()
-
-add_executable(test_ec200 tests/test_ec200.c)
-target_link_libraries(test_ec200 PRIVATE ec200)
-
-add_test(NAME ec200_unit_tests COMMAND test_ec200)
+if(EC200_ANALYZER AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(ec200 PRIVATE -fanalyzer)
+endif()
 
 # ---------------------------------------------------------------------------
-# Wrapper-template example (compile-check only – not linked to real UART)
+# Unit tests: Unity + CMock + scripted loopback
+# ---------------------------------------------------------------------------
+if(EC200_BUILD_TESTS)
+    enable_testing()
+    include(FetchContent)
+
+    FetchContent_Declare(unity
+        GIT_REPOSITORY https://github.com/ThrowTheSwitch/Unity.git
+        GIT_TAG        v2.6.1
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(unity)
+
+    # CMock is fetched source-only; its runtime is built below and its Ruby
+    # generator produces the mocks at build time.
+    FetchContent_Declare(cmock
+        GIT_REPOSITORY https://github.com/ThrowTheSwitch/CMock.git
+        GIT_TAG        v2.6.0
+        GIT_SHALLOW    TRUE
+        SOURCE_SUBDIR  cmake-no-subdir   # do not add_subdirectory()
+    )
+    FetchContent_MakeAvailable(cmock)
+
+    # -- Loopback transport support ----------------------------------------
+    add_library(test_support STATIC tests/support/loopback.c)
+    target_include_directories(test_support PUBLIC tests/support)
+    ec200_strict_warnings(test_support)
+
+    # -- Loopback-driven suites --------------------------------------------
+    function(add_ec200_test name)
+        add_executable(${name} tests/${name}.c)
+        target_link_libraries(${name} PRIVATE ec200 unity test_support)
+        ec200_strict_warnings(${name})
+        add_test(NAME ${name} COMMAND ${name})
+    endfunction()
+
+    add_ec200_test(test_at_engine)
+    add_ec200_test(test_modules)
+    add_ec200_test(test_protocols)
+
+    # -- CMock-based transport-contract suite ------------------------------
+    find_program(RUBY_EXECUTABLE ruby HINTS "C:/Ruby32-x64/bin")
+    if(RUBY_EXECUTABLE)
+        set(MOCK_DIR ${CMAKE_BINARY_DIR}/mocks)
+        add_custom_command(
+            OUTPUT  ${MOCK_DIR}/mock_transport.c ${MOCK_DIR}/mock_transport.h
+            COMMAND ${RUBY_EXECUTABLE} ${cmock_SOURCE_DIR}/lib/cmock.rb
+                    -o${CMAKE_CURRENT_SOURCE_DIR}/tests/cmock_config.yml
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/support/transport.h
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/support/transport.h
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmock_config.yml
+            COMMENT "Generating CMock mocks from transport.h"
+            VERBATIM
+        )
+
+        add_library(cmock_runtime STATIC ${cmock_SOURCE_DIR}/src/cmock.c)
+        target_include_directories(cmock_runtime PUBLIC ${cmock_SOURCE_DIR}/src)
+        target_link_libraries(cmock_runtime PUBLIC unity)
+
+        add_executable(test_transport_cmock
+            tests/test_transport_cmock.c
+            ${MOCK_DIR}/mock_transport.c
+        )
+        target_include_directories(test_transport_cmock PRIVATE
+            ${MOCK_DIR}
+            tests/support
+        )
+        target_link_libraries(test_transport_cmock PRIVATE ec200 cmock_runtime)
+        add_test(NAME test_transport_cmock COMMAND test_transport_cmock)
+    else()
+        message(WARNING "Ruby not found - CMock tests are disabled "
+                        "(loopback suites still run)")
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# Static analysis: cppcheck target
+# ---------------------------------------------------------------------------
+find_program(CPPCHECK_EXECUTABLE cppcheck HINTS "C:/Program Files/Cppcheck")
+if(CPPCHECK_EXECUTABLE)
+    add_custom_target(cppcheck
+        COMMAND ${CPPCHECK_EXECUTABLE}
+                --enable=warning,style,performance,portability
+                --std=c99
+                --language=c
+                --inline-suppr
+                --error-exitcode=1
+                --suppress=missingIncludeSystem
+                --check-level=exhaustive
+                -I ${CMAKE_CURRENT_SOURCE_DIR}/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/src
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running cppcheck over src/"
+        VERBATIM
+    )
+endif()
+
+# ---------------------------------------------------------------------------
+# Coverage report: gcovr target (requires EC200_COVERAGE=ON + a test run)
+# ---------------------------------------------------------------------------
+find_program(GCOVR_EXECUTABLE gcovr)
+if(GCOVR_EXECUTABLE AND EC200_COVERAGE)
+    get_filename_component(_toolchain_bin ${CMAKE_C_COMPILER} DIRECTORY)
+    find_program(GCOV_EXECUTABLE gcov HINTS ${_toolchain_bin})
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/coverage)
+    add_custom_target(coverage
+        COMMAND ${GCOVR_EXECUTABLE}
+                --root ${CMAKE_CURRENT_SOURCE_DIR}
+                --filter ${CMAKE_CURRENT_SOURCE_DIR}/src
+                --gcov-executable ${GCOV_EXECUTABLE}
+                --print-summary
+                --html-details ${CMAKE_BINARY_DIR}/coverage/index.html
+                ${CMAKE_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Generating gcov coverage report (coverage/index.html)"
+        VERBATIM
+    )
+endif()
+
+# ---------------------------------------------------------------------------
+# Wrapper-template example (compile-check only)
 # ---------------------------------------------------------------------------
 add_executable(wrapper_template examples/wrapper_template.c)
 target_link_libraries(wrapper_template PRIVATE ec200)
-
-# Mark the wrapper as a compile-check only target (it will link but not run)
-set_target_properties(wrapper_template PROPERTIES
-    EXCLUDE_FROM_ALL TRUE
-)
+ec200_strict_warnings(wrapper_template)
+set_target_properties(wrapper_template PROPERTIES EXCLUDE_FROM_ALL TRUE)
