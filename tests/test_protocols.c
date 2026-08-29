@@ -1255,6 +1255,114 @@ void test_branch_sms_list_capacity_stop(void)
     TEST_ASSERT_EQUAL_STRING("one", msgs[0].text);
 }
 
+/* =========================================================================
+ * PPP control plane
+ * ========================================================================= */
+
+void test_ppp_dial_and_data_mode_guard(void)
+{
+    lb_on_write("ATD*99***1#", "\r\nCONNECT 150000000\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    TEST_ASSERT_TRUE(ec200_ppp_in_data_mode(&h));
+
+    /* Every AT transaction API must refuse while PPP owns the UART. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_BUSY, ec200_check_at(&h));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_BUSY, ec200_at_poll_urc(&h, 0));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_BUSY, ec200_ppp_dial(&h, 1));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_BUSY, ec200_ppp_resume(&h));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_ppp_hangup(&h));
+
+    /* Escape returns to command mode; "+++" goes out with NO terminator. */
+    lb_on_write("+++", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_escape(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));
+    TEST_ASSERT_NOT_NULL(strstr(lb_tx_data(), "+++"));
+    TEST_ASSERT_NULL(strstr(lb_tx_data(), "+++\r"));
+
+    /* AT transactions work again. */
+    lb_on_write("AT\r", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_check_at(&h));
+}
+
+void test_ppp_resume_and_disconnect(void)
+{
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+
+    lb_on_write("+++", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_escape(&h));
+
+    /* ATO re-enters the suspended session. */
+    lb_on_write("ATO", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_resume(&h));
+    TEST_ASSERT_TRUE(ec200_ppp_in_data_mode(&h));
+
+    /* disconnect = escape + hangup from data mode... */
+    lb_on_write("+++", "\r\nOK\r\n");
+    lb_on_write("ATH", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_disconnect(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));
+
+    /* ...and plain ATH from command mode. */
+    lb_on_write("ATH", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_disconnect(&h));
+}
+
+void test_ppp_resume_session_gone(void)
+{
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    lb_on_write("+++", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_escape(&h));
+
+    lb_on_write("ATO", "\r\nNO CARRIER\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_ppp_resume(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));
+}
+
+void test_ppp_dial_failures(void)
+{
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_ppp_dial(NULL, 1));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_ppp_dial(&h, 0));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_ppp_dial(&h, 17));
+
+    lb_on_write("ATD*99***1#", "\r\nERROR\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_ppp_dial(&h, 1));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));
+
+    /* Regression target: NO CARRIER must fail fast, not time out. */
+    lb_on_write("ATD*99***1#", "\r\nNO CARRIER\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_ppp_dial(&h, 1));
+
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT, ec200_ppp_dial(&h, 1));
+}
+
+void test_ppp_escape_failures_and_null_args(void)
+{
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_ppp_escape(NULL));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_ppp_resume(NULL));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_ppp_hangup(NULL));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_ppp_disconnect(NULL));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(NULL));
+
+    /* Escape in command mode is refused ("+++" would pollute the buffer). */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_ppp_escape(&h));
+
+    /* No OK after the escape: stays in data mode. */
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT, ec200_ppp_escape(&h));
+    TEST_ASSERT_TRUE(ec200_ppp_in_data_mode(&h));
+
+    /* disconnect propagates the failing escape. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT, ec200_ppp_disconnect(&h));
+
+    /* Transport dies during the escape write. */
+    lb_set_io_error(true);
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_IO, ec200_ppp_escape(&h));
+    TEST_ASSERT_TRUE(ec200_ppp_in_data_mode(&h));
+}
+
 /* ========================================================================= */
 
 int main(void)
@@ -1341,5 +1449,10 @@ int main(void)
     RUN_TEST(test_branch_sms_alpha_field_low_ascii);
     RUN_TEST(test_branch_sms_list_empty);
     RUN_TEST(test_branch_sms_list_capacity_stop);
+    RUN_TEST(test_ppp_dial_and_data_mode_guard);
+    RUN_TEST(test_ppp_resume_and_disconnect);
+    RUN_TEST(test_ppp_resume_session_gone);
+    RUN_TEST(test_ppp_dial_failures);
+    RUN_TEST(test_ppp_escape_failures_and_null_args);
     return UNITY_END();
 }

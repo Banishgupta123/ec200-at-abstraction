@@ -56,6 +56,14 @@ void test_send_plain_error_maps_to_module_error(void)
     TEST_ASSERT_EQUAL_INT(-1, ec200_at_last_cms_error(&h));
 }
 
+void test_no_carrier_is_module_error(void)
+{
+    /* Failed data-call setup answers NO CARRIER instead of ERROR. */
+    lb_on_write("ATD", "\r\nNO CARRIER\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE,
+        ec200_at_send(&h, "ATD*99***1#", NULL, 0, 1000));
+}
+
 void test_send_not_ready(void)
 {
     ec200_handle_t raw;
@@ -778,6 +786,7 @@ int main(void)
     RUN_TEST(test_send_collects_body_lines);
     RUN_TEST(test_send_timeout_when_no_response);
     RUN_TEST(test_send_plain_error_maps_to_module_error);
+    RUN_TEST(test_no_carrier_is_module_error);
     RUN_TEST(test_send_not_ready);
     RUN_TEST(test_cme_error_code);
     RUN_TEST(test_cms_after_cme_not_misclassified);

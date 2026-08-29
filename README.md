@@ -186,7 +186,27 @@ ec200_at_poll_urc(&modem, 0);
 | `ec200_mqtt.h` | QMTOPEN, QMTCONN, QMTSUB, QMTPUBEX, QMTDISC, message callback |
 | `ec200_gnss.h` | QGPS start/stop/status, QGPSLOC, QGPSCFG NMEA types |
 | `ec200_power.h` | CFUN get/set/reset, QPOWD, QSCLK |
+| `ec200_ppp.h` | PPP dial-up control plane: dial, escape (+++), resume, hangup |
 | `ec200_at.h` | AT transaction primitives, raw I/O, URC registry |
+
+## PPP
+
+The library also covers the PPP **control plane** — the AT side of a dial-up
+data session:
+
+```c
+ec200_data_set_pdp(&modem, &pdp);       /* configure the context first     */
+ec200_ppp_dial(&modem, 1);              /* ATD*99***1# → CONNECT           */
+/* UART now carries PPP frames: hand it to your PPP stack (e.g. lwIP
+ * PPPoS / esp_netif on ESP-IDF).  All AT APIs return EC200_ERR_BUSY
+ * until the session is escaped. */
+ec200_ppp_escape(&modem);               /* +++ (guard timing handled)      */
+ec200_ppp_resume(&modem);               /* ATO → CONNECT                   */
+ec200_ppp_disconnect(&modem);           /* escape (if needed) + ATH        */
+```
+
+The PPP **protocol itself** is deliberately out of scope — that is the host
+network stack's job. CMUX (simultaneous AT + PPP) is not supported.
 
 ## Error Handling
 

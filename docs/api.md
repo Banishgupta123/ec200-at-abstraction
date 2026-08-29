@@ -25,8 +25,9 @@ from the repository root and open `docs/html/index.html`.
 13. [MQTT](#mqtt) — `ec200_mqtt.h`
 14. [GNSS](#gnss) — `ec200_gnss.h`
 15. [Power](#power) — `ec200_power.h`
-16. [Error Handling](#error-handling)
-17. [Threading Model](#threading-model)
+16. [PPP Control Plane](#ppp-control-plane) — `ec200_ppp.h`
+17. [Error Handling](#error-handling)
+18. [Threading Model](#threading-model)
 
 ---
 
@@ -386,6 +387,26 @@ ec200_status_t ec200_power_reset(ec200_handle_t *h);   /* CFUN=1,1 */
 
 PWRKEY/reset **GPIO sequencing is the platform wrapper's responsibility** —
 each board wires it differently.
+
+## PPP Control Plane
+
+```c
+ec200_status_t ec200_ppp_dial(ec200_handle_t *h, uint8_t cid);   /* ATD*99***<cid># */
+ec200_status_t ec200_ppp_escape(ec200_handle_t *h);              /* +++ with guard  */
+ec200_status_t ec200_ppp_resume(ec200_handle_t *h);              /* ATO             */
+ec200_status_t ec200_ppp_hangup(ec200_handle_t *h);              /* ATH             */
+ec200_status_t ec200_ppp_disconnect(ec200_handle_t *h);          /* escape + ATH    */
+bool           ec200_ppp_in_data_mode(const ec200_handle_t *h);
+```
+
+`dial` waits for `CONNECT` and stops consuming bytes at exactly that point —
+the UART then carries raw PPP frames for the **host network stack** (lwIP
+PPPoS, esp_netif, …); the PPP protocol itself is out of the library's scope.
+While the handle is in data mode every AT transaction API returns
+`EC200_ERR_BUSY`, so a stray command cannot corrupt the PPP stream. `escape`
+performs the `+++` sequence with the required ~1.1 s guard silences (quiesce
+your PPP stack first) and blocks for at least 2.2 s. A failed dial reports
+`EC200_ERR_MODULE` (`NO CARRIER`/`ERROR`). CMUX is not supported.
 
 ## Error Handling
 

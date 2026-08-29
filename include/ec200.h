@@ -105,6 +105,7 @@
  * | @ref EC200_MQTT    | ec200_mqtt.h        | MQTT client (binary-safe publish)  |
  * | @ref EC200_GNSS    | ec200_gnss.h        | GNSS/GPS location                  |
  * | @ref EC200_Power   | ec200_power.h       | Power management                   |
+ * | @ref EC200_PPP     | ec200_ppp.h         | PPP dial-up control plane          |
  *
  * @section err_sec Error Handling
  *
@@ -145,6 +146,7 @@
 #include "ec200_mqtt.h"
 #include "ec200_gnss.h"
 #include "ec200_power.h"
+#include "ec200_ppp.h"
 
 #ifdef __cplusplus
 extern "C" {

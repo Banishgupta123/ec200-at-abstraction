@@ -24,6 +24,7 @@ if(ESP_PLATFORM)
             src/ec200_mqtt.c
             src/ec200_gnss.c
             src/ec200_power.c
+            src/ec200_ppp.c
         INCLUDE_DIRS include
     )
     return()
@@ -92,6 +93,7 @@ add_library(ec200 STATIC
     src/ec200_mqtt.c
     src/ec200_gnss.c
     src/ec200_power.c
+    src/ec200_ppp.c
 )
 target_include_directories(ec200 PUBLIC include)
 ec200_strict_warnings(ec200)
