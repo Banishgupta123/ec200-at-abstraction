@@ -1,4 +1,34 @@
 cmake_minimum_required(VERSION 3.18)
+
+# ===========================================================================
+# ESP-IDF component mode
+# ---------------------------------------------------------------------------
+# When this repository is consumed as an ESP-IDF component (via the IDF
+# Component Manager or a components/ directory), the IDF build system defines
+# ESP_PLATFORM and expects idf_component_register().  The library is pure
+# C99 with no IDF dependencies, so the component is just the sources plus
+# the public headers.  Everything below the return() is the host-side
+# project (tests, coverage, static analysis) and never runs inside IDF.
+# ===========================================================================
+if(ESP_PLATFORM)
+    idf_component_register(
+        SRCS
+            src/ec200.c
+            src/ec200_at.c
+            src/ec200_sim.c
+            src/ec200_network.c
+            src/ec200_sms.c
+            src/ec200_data.c
+            src/ec200_tcpip.c
+            src/ec200_http.c
+            src/ec200_mqtt.c
+            src/ec200_gnss.c
+            src/ec200_power.c
+        INCLUDE_DIRS include
+    )
+    return()
+endif()
+
 project(ec200_at_abstraction LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)

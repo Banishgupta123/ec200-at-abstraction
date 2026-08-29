@@ -159,7 +159,7 @@ extern "C" {
  * Library version
  * ------------------------------------------------------------------------- */
 #define EC200_LIB_VERSION_MAJOR  1
-#define EC200_LIB_VERSION_MINOR  0
+#define EC200_LIB_VERSION_MINOR  1
 #define EC200_LIB_VERSION_PATCH  0
 
 /* -------------------------------------------------------------------------

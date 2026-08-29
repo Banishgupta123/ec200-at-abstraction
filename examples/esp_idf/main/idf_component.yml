@@ -1,0 +1,10 @@
+dependencies:
+  ec200-at-abstraction:
+    version: "*"
+    # Inside this repository the example builds against the local sources.
+    # In your own project, replace override_path with a git or registry
+    # dependency, e.g.:
+    #   ec200-at-abstraction:
+    #     git: "https://github.com/Banishgupta123/ec200-at-abstraction.git"
+    #     version: "v1.1.0"
+    override_path: "../../.."
