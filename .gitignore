@@ -1,4 +1,8 @@
 build/
+build-*/
+coverage/
+*.gcda
+*.gcno
 *.o
 *.a
 *.so
@@ -9,3 +13,4 @@ cmake_install.cmake
 Makefile
 CTestTestfile.cmake
 docs/html/
+.vscode/
