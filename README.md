@@ -232,7 +232,34 @@ Build options:
 The library is compiled with `-Wall -Wextra -Wpedantic -Wshadow -Wconversion
 -Wdouble-promotion -Wundef -Wstrict-prototypes -Werror`.
 
-### Embedded project
+### ESP-IDF project
+
+The repository doubles as an ESP-IDF component (any IDF version — the
+library is pure C99 with no IDF API usage). Add it to your project's
+`main/idf_component.yml`:
+
+```yaml
+dependencies:
+  ec200-at-abstraction:
+    git: "https://github.com/Banishgupta123/ec200-at-abstraction.git"
+    version: "v1.1.0"
+```
+
+The IDF Component Manager fetches it on the next `idf.py build`; then just
+`#include "ec200.h"`. A complete demo project — including a UART wrapper
+whose driver semantics match the library's read-callback contract exactly —
+is in [examples/esp_idf/](examples/esp_idf/):
+
+```sh
+cd examples/esp_idf
+idf.py set-target esp32s3
+idf.py build flash monitor
+```
+
+Alternatively, add the repo as a git submodule under your project's
+`components/` directory.
+
+### Other embedded projects
 
 Add all files in `src/` to your build system and add `include/` to the include
 path. No external dependencies beyond a standard C99 compiler; no dynamic

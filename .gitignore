@@ -14,3 +14,10 @@ Makefile
 CTestTestfile.cmake
 docs/html/
 .vscode/
+
+# ESP-IDF example build artifacts
+examples/esp_idf/build/
+examples/esp_idf/sdkconfig
+examples/esp_idf/sdkconfig.old
+examples/esp_idf/managed_components/
+examples/esp_idf/dependencies.lock
