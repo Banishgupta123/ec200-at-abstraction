@@ -434,6 +434,8 @@ typedef struct {
 
     /* --- Cached state ---------------------------------------------------- */
     bool     _initialised;            /**< Set by ec200_init()              */
+    bool     _ppp_data_mode;          /**< UART carries PPP frames; AT calls
+                                           return EC200_ERR_BUSY            */
     int      _last_cme_error;         /**< Last +CME ERROR code             */
     int      _last_cms_error;         /**< Last +CMS ERROR code             */
 } ec200_handle_t;

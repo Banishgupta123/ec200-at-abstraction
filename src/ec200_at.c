@@ -127,6 +127,9 @@ static int is_terminal(ec200_handle_t *h, const char *line)
     if (strcmp(line, "ERROR") == 0) {
         return 2;
     }
+    if (strcmp(line, "NO CARRIER") == 0) {
+        return 2; /* data-call setup failed / carrier lost */
+    }
     if (strncmp(line, "+CME ERROR:", 11) == 0) {
         h->_last_cme_error = atoi(line + 11);
         return 2;
@@ -189,6 +192,10 @@ static void copy_line(const char *line, char *dst, size_t dst_sz)
  */
 static ec200_status_t at_transmit(ec200_handle_t *h, const char *cmd)
 {
+    if (h->_ppp_data_mode) {
+        return EC200_ERR_BUSY; /* UART belongs to PPP; escape first */
+    }
+
     h->_last_cme_error = -1;
     h->_last_cms_error = -1;
 
@@ -689,6 +696,9 @@ ec200_status_t ec200_at_poll_urc(ec200_handle_t *h, uint32_t timeout_ms)
 {
     if (!handle_ready(h)) {
         return EC200_ERR_NOT_READY;
+    }
+    if (h->_ppp_data_mode) {
+        return EC200_ERR_BUSY; /* incoming bytes are PPP frames, not URCs */
     }
 
     uint32_t budget = timeout_ms;
