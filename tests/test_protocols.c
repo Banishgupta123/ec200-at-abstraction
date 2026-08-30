@@ -1396,6 +1396,64 @@ void test_tcp_open_rejects_overlong_host(void)
                        EC200_ACCESS_BUFFER));
 }
 
+void test_ppp_escape_no_carrier_does_not_wedge(void)
+{
+    /* Regression (found on hardware): when the data call has already
+     * ended the module answers "+++" with NO CARRIER.  The handle used
+     * to stay in data mode, so every later AT call returned BUSY and
+     * the handle was permanently unusable. */
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    TEST_ASSERT_TRUE(ec200_ppp_in_data_mode(&h));
+
+    lb_on_write("+++", "\r\nNO CARRIER\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_ppp_escape(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));   /* not wedged */
+
+    /* The handle must be usable again straight away. */
+    lb_on_write("AT\r", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_check_at(&h));
+
+    /* A +CME / +CMS terminal answer must clear data mode too. */
+    SETUP_MODEM(&h);
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    lb_on_write("+++", "\r\n+CME ERROR: 3\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CME, ec200_ppp_escape(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));
+
+    SETUP_MODEM(&h);
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    lb_on_write("+++", "\r\n+CMS ERROR: 500\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CMS, ec200_ppp_escape(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));
+}
+
+void test_ppp_disconnect_after_carrier_loss(void)
+{
+    /* disconnect must still issue ATH when escape reports the session
+     * is already gone. */
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    lb_on_write("+++", "\r\nNO CARRIER\r\n");
+    lb_on_write("ATH", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_disconnect(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));
+}
+
+void test_ppp_escape_timeout_stays_in_data_mode(void)
+{
+    /* Timeout means the module state is unknown, so the handle must
+     * NOT silently claim command mode. */
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT, ec200_ppp_escape(&h));
+    TEST_ASSERT_TRUE(ec200_ppp_in_data_mode(&h));
+    /* ...and disconnect refuses rather than pretending. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT, ec200_ppp_disconnect(&h));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -1486,5 +1544,8 @@ int main(void)
     RUN_TEST(test_ppp_dial_failures);
     RUN_TEST(test_ppp_escape_failures_and_null_args);
     RUN_TEST(test_tcp_open_rejects_overlong_host);
+    RUN_TEST(test_ppp_escape_no_carrier_does_not_wedge);
+    RUN_TEST(test_ppp_disconnect_after_carrier_loss);
+    RUN_TEST(test_ppp_escape_timeout_stays_in_data_mode);
     return UNITY_END();
 }

@@ -462,11 +462,46 @@ static void test_sms(void)
     ck_st("set_format(text)",
           ec200_sms_set_format(&m, EC200_SMS_FORMAT_TEXT), EC200_OK);
 
-    if (SMS_DEST[0] != '\0') {
-        ck_st("sms_send", ec200_sms_send(&m, SMS_DEST, "EC200 harness test"),
+    /* Send test.  SMS_DEST is deliberately empty so no message ever
+     * reaches a personal phone; instead ask the SIM for its own number
+     * (AT+CNUM) and send to that, then verify it arrives in the inbox.
+     * A closed loop that exercises the full CMGS prompt/Ctrl-Z path. */
+    char self_num[EC200_MAX_PHONE_NUM_LEN] = {0};
+    char cnum[96];
+    if (ec200_at_send_wait(&m, "AT+CNUM", "+CNUM:", cnum, sizeof(cnum),
+                           3000) == EC200_OK) {
+        /* +CNUM: "","<number>",<type> - take the second quoted field */
+        const char *q1 = strchr(cnum, '\"');
+        const char *q2 = q1 ? strchr(q1 + 1, '\"') : NULL;
+        const char *q3 = q2 ? strchr(q2 + 1, '\"') : NULL;
+        const char *q4 = q3 ? strchr(q3 + 1, '\"') : NULL;
+        if (q3 && q4 && (size_t)(q4 - q3 - 1) < sizeof(self_num)) {
+            memcpy(self_num, q3 + 1, (size_t)(q4 - q3 - 1));
+        }
+    }
+    printf("        own number (CNUM) = \"%s\"\n", self_num);
+
+    const char *dest = (SMS_DEST[0] != '\0') ? SMS_DEST
+                     : (self_num[0] != '\0' ? self_num : NULL);
+    if (dest != NULL) {
+        uint8_t before = 0, after = 0;
+        ec200_sms_message_t tmp[8];
+        (void)ec200_sms_list(&m, EC200_SMS_STAT_ALL, tmp, 8, &before);
+        ck_st("sms_send", ec200_sms_send(&m, dest, "EC200 harness test"),
               EC200_OK);
+        if (dest == self_num) {
+            /* Loopback: wait for our own message to come back. */
+            for (int i = 0; i < 20 && after <= before; i++) {
+                vTaskDelay(pdMS_TO_TICKS(3000));
+                (void)ec200_at_poll_urc(&m, 100);
+                (void)ec200_sms_list(&m, EC200_SMS_STAT_ALL, tmp, 8,
+                                     &after);
+            }
+            printf("        inbox %u -> %u\n", before, after);
+            ck("sms loopback delivered to self", after > before);
+        }
     } else {
-        skip("sms_send", "no SMS_DEST set");
+        skip("sms_send", "SMS_DEST empty and CNUM gave no own number");
     }
 
     /* inbox list + read */
@@ -875,17 +910,59 @@ static void test_ppp(void)
     ck_st("dial bad cid", ec200_ppp_dial(&m, 0), EC200_ERR_PARAM);
 
     ec200_status_t s = ec200_ppp_dial(&m, 1);
-    printf("        dial -> %s\n", ec200_status_str(s));
+    printf("        dial -> %s (%s)\n", ec200_status_str(s),
+           ec200_at_last_error_text(&m));
+
+    /* ATD*99 conflicts with a PDP context that is already active in
+     * AT mode (on LTE the attach bearer is up).  Drop it and retry:
+     * the control-plane cycle needs no PPP stack, only CONNECT. */
+    if (s != EC200_OK) {
+        printf("        retrying with PDP context deactivated\n");
+        (void)ec200_data_deactivate(&m, 1);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        s = ec200_ppp_dial(&m, 1);
+        printf("        dial#2 -> %s (%s)\n",
+               ec200_status_str(s), ec200_at_last_error_text(&m));
+    }
+
     if (s == EC200_OK) {
         ck("in data mode after dial", ec200_ppp_in_data_mode(&m));
         ck_st("AT refused in data mode (BUSY)",
               ec200_check_at(&m), EC200_ERR_BUSY);
-        ck_st("ppp_escape", ec200_ppp_escape(&m), EC200_OK);
-        ck("back in cmd mode", !ec200_ppp_in_data_mode(&m));
-        ck_st("ppp_hangup", ec200_ppp_hangup(&m), EC200_OK);
+        /* Without a PPP stack driving LCP the module may drop the call,
+         * answering "+++" with NO CARRIER.  Either outcome is fine; what
+         * must NOT happen is the handle staying stuck in data mode. */
+        ec200_status_t es = ec200_ppp_escape(&m);
+        printf("        escape -> %s\n", ec200_status_str(es));
+        ck("escape leaves data mode (no wedge)",
+           !ec200_ppp_in_data_mode(&m));
+        ck_st("AT works again after escape",
+              ec200_check_at(&m), EC200_OK);
+
+        if (es == EC200_OK) {
+            /* Session survived: the full suspend/resume cycle. */
+            ec200_status_t rs = ec200_ppp_resume(&m);
+            printf("        resume -> %s\n", ec200_status_str(rs));
+            if (rs == EC200_OK) {
+                ck("in data mode after resume",
+                   ec200_ppp_in_data_mode(&m));
+                ck_st("ppp_disconnect (escape + ATH)",
+                      ec200_ppp_disconnect(&m), EC200_OK);
+            } else {
+                skip("ppp resume cycle", "call ended before ATO");
+            }
+        } else {
+            /* Carrier already gone - hang up to tidy the module up. */
+            ck_st("ppp_hangup after carrier loss",
+                  ec200_ppp_hangup(&m), EC200_OK);
+        }
+        ck("cmd mode at end of PPP", !ec200_ppp_in_data_mode(&m));
     } else {
         skip("ppp data-mode cycle", "dial did not CONNECT");
     }
+
+    /* Leave data usable for anything that follows. */
+    (void)ec200_data_activate(&m, 1);
 }
 
 /* ========================================================================= */
@@ -911,13 +988,36 @@ static void test_power(void)
     ck_st("set_sleep on", ec200_power_set_sleep(&m, true), EC200_OK);
     ck_st("set_sleep off", ec200_power_set_sleep(&m, false), EC200_OK);
 
-#if 0 /* QPOWD powers the modem off; kept off so the modem stays up for
-       * repeated harness runs.  Enable to validate power_down. */
-    printf("  -> powering modem OFF (QPOWD); power-cycle to recover\n");
+    /* QPOWD really powers the module down.  Run it last, then bring it
+     * back with a PWRKEY pulse so the rig is left usable. */
+    printf("  -> powering modem OFF (QPOWD)\n");
     ck_st("power_down", ec200_power_down(&m, true), EC200_OK);
-#else
-    skip("power_down", "QPOWD disabled to keep modem up for iteration");
-#endif
+    vTaskDelay(pdMS_TO_TICKS(8000));
+    ck("modem is really off (AT no longer answers)",
+       ec200_check_at(&m) != EC200_OK);
+
+    /* QPOWD shutdown is not instantaneous; a PWRKEY pulse that arrives
+     * while the module is still powering down is ignored.  Let it settle
+     * fully, then pulse - retrying once, since this must leave the rig
+     * usable. */
+    printf("  -> waiting for shutdown to complete\n");
+    vTaskDelay(pdMS_TO_TICKS(15000));
+
+    ec200_status_t back = EC200_ERR_TIMEOUT;
+    for (int attempt = 1; attempt <= 3 && back != EC200_OK; attempt++) {
+        printf("  -> PWRKEY pulse, attempt %d\n", attempt);
+        pwrkey_pulse();
+        for (int i = 0; i < 30 && back != EC200_OK; i++) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            back = ec200_check_at(&m);
+        }
+    }
+    ck_st("modem recovered after PWRKEY", back, EC200_OK);
+    if (back == EC200_OK) {
+        /* A fresh boot restores the factory ATE1, so re-init the handle. */
+        (void)ec200_set_echo(&m, false);
+        ck_st("usable after recovery", ec200_check_at(&m), EC200_OK);
+    }
 }
 
 /* ========================================================================= */

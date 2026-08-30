@@ -106,12 +106,25 @@ they are not in the manuals.
 - **Subsystem interference:** a request left in flight (HTTP, TLS socket,
   NTP) blocks the next subsystem's connect. The harness runs a `settle()`
   between heavy groups.
+- `ATD*99` fails with a verbose **"Operation not allowed"** while the PDP
+  context is still active in AT mode (on LTE the attach bearer is up).
+  Deactivate the context first, then dial.
+- The data call ends by itself when nothing drives PPP/LCP, so `+++` is
+  answered with **`NO CARRIER`** rather than `OK`. The library must clear
+  its data-mode flag in that case - leaving it set made every later AT call
+  return `EC200_ERR_BUSY` and wedged the handle permanently (fixed).
+- After `AT+QPOWD` the **first PWRKEY pulse can be ignored**: the module is
+  still shutting down. Wait for the shutdown to finish (~15 s) and retry;
+  two attempts were needed in practice.
+- A fresh boot restores the factory **`ATE1`**, so echo must be disabled
+  again after any power cycle.
 - Error payloads: with `AT+CMEE=2` the module *may* answer with text
   instead of a number, so the code is parsed only when the payload is
   entirely numeric and the raw text is always kept
-  (`ec200_at_last_error_text()`). On this firmware `QFLST` errors stay
-  numeric even in verbose mode, so the text path is host-tested rather
-  than hardware-proven.
+  (`ec200_at_last_error_text()`). It is genuinely mixed on this firmware:
+  `QFLST` errors stay numeric even in verbose mode, while `ATD` returns
+  "Operation not allowed" - so both paths occur in practice and the text
+  is often the only diagnostic available.
 
 ### Security, validated on hardware
 
@@ -133,8 +146,15 @@ Still queued:
 - SIM completeness: `CLCK` (facility lock), `CPWD`, PUK unlock
 - Misc: `QADC`, `QTEMP`, `QGPSGNMEA`
 
-Untested: the PPP data-mode cycle (the control plane is covered, but
-dialling through to a live session needs a PPP stack such as lwIP PPPoS).
+The PPP control plane is now exercised on hardware end to end: dial ->
+data mode -> AT refused with BUSY -> escape -> hangup. Carrying actual IP
+traffic still needs a host PPP stack (lwIP PPPoS); only that remains
+unproven.
+
+The single remaining harness skip is `sms_send`: it is deliberately not
+wired to a personal number, and `AT+CNUM` returns nothing on this SIM, so
+the self-loopback path is unavailable. Set `SMS_DEST` in the harness to
+send one real message.
 
 CI (`.github/workflows/ci.yml`) lives on an unmerged branch: GitHub Actions
 does not run on a private repo without billing, so it is parked until the
