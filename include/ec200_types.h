@@ -33,6 +33,28 @@ extern "C" {
  */
 #define EC200_RX_BUFFER_SIZE      (2048U)
 #define EC200_TX_BUFFER_SIZE      (512U)    /**< Transmit scratch-buffer size     */
+
+/**
+ * Response-buffer size for ec200_sms_read().  One message: a +CMGR header
+ * plus a body of at most EC200_MAX_SMS_TEXT_LEN bytes.  These buffers live
+ * on the caller's stack, so they are sized for the operation rather than
+ * from EC200_RX_BUFFER_SIZE (which is sized for the largest possible URC).
+ * Override at compile time if a firmware emits longer headers.
+ */
+#ifndef EC200_SMS_READ_BUF_LEN
+#define EC200_SMS_READ_BUF_LEN    (512U)
+#endif
+
+/**
+ * Response-buffer size for ec200_sms_list().  The module returns every
+ * matching message in one response, so this bounds how many a single call
+ * can parse (roughly 230 bytes per message, i.e. ~4 at the default).
+ * Raise it if you list many messages and can afford the stack.
+ */
+#ifndef EC200_SMS_LIST_BUF_LEN
+#define EC200_SMS_LIST_BUF_LEN    (1024U)
+#endif
+
 #define EC200_MAX_OPERATOR_LEN    (32U)     /**< Max operator name string length  */
 #define EC200_MAX_PHONE_NUM_LEN   (20U)     /**< Max phone-number string length   */
 #define EC200_MAX_SMS_TEXT_LEN    (160U)    /**< Max SMS text body length         */

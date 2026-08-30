@@ -118,6 +118,12 @@ ec200_status_t ec200_time_sync_ntp(ec200_handle_t *h,
         return EC200_ERR_PARAM;
     }
 
+    /* Reject over-long names: they would silently truncate into a
+     * malformed AT command. */
+    if (strlen(server) >= EC200_MAX_URL_LEN) {
+        return EC200_ERR_PARAM;
+    }
+
     char cmd[EC200_MAX_URL_LEN + 32];
     (void)snprintf(cmd, sizeof(cmd), "AT+QNTP=%u,\"%s\",%u",
                    (unsigned)pdp_ctx, server,

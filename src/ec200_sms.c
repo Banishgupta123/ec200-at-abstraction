@@ -175,7 +175,7 @@ ec200_status_t ec200_sms_read(ec200_handle_t      *h,
      * Collect the full response ("+CMGR: <header>\n<body lines>") in one
      * transaction so the body cannot be lost between reads.
      */
-    char resp[EC200_RX_BUFFER_SIZE];
+    char resp[EC200_SMS_READ_BUF_LEN];
     ec200_status_t st = ec200_at_send(h, cmd, resp, sizeof(resp),
                                       EC200_AT_TIMEOUT_DEFAULT);
     if (st != EC200_OK) {
@@ -230,7 +230,7 @@ ec200_status_t ec200_sms_list(ec200_handle_t      *h,
     (void)snprintf(cmd, sizeof(cmd), "AT+CMGL=\"%s\"",
                    stat_strings[(int)stat]);
 
-    char resp[EC200_RX_BUFFER_SIZE];
+    char resp[EC200_SMS_LIST_BUF_LEN];
     ec200_status_t st = ec200_at_send(h, cmd, resp, sizeof(resp),
                                       EC200_AT_TIMEOUT_LONG);
     if (st != EC200_OK) {

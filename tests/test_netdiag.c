@@ -435,6 +435,21 @@ void test_ping_many_reply_lines_then_timeout(void)
 }
 
 /* ========================================================================= */
+void test_overlong_host_rejected(void)
+{
+    static char toolong[EC200_MAX_URL_LEN + 8];
+    memset(toolong, 'h', sizeof(toolong) - 1U);
+    toolong[sizeof(toolong) - 1U] = 0;
+    char ip[32];
+    ec200_ping_result_t pr;
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_tcp_dns_resolve(&h, 1, toolong, ip, sizeof(ip), 1000));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_tcp_ping(&h, 1, toolong, 4, &pr, 1000));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_time_sync_ntp(&h, 1, toolong, 123, 1000));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -455,5 +470,6 @@ int main(void)
     RUN_TEST(test_netdiag_command_failures);
     RUN_TEST(test_branch_guard_arms);
     RUN_TEST(test_ping_many_reply_lines_then_timeout);
+    RUN_TEST(test_overlong_host_rejected);
     return UNITY_END();
 }

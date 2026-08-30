@@ -203,7 +203,14 @@ ec200_status_t ec200_net_set_operator(ec200_handle_t    *h,
                                       const char        *oper,
                                       ec200_act_t        act)
 {
-    char cmd[64];
+    /* An over-long name would silently truncate into a malformed command. */
+    if (oper != NULL && strlen(oper) >= EC200_MAX_OPERATOR_LEN) {
+        return EC200_ERR_PARAM;
+    }
+
+    /* Worst case: "AT+COPS=" + three ints (11 each) + quotes + a 31-char
+     * operator name = 78 bytes, so 96 makes truncation impossible. */
+    char cmd[96];
     if (mode == EC200_COPS_MODE_AUTOMATIC) {
         (void)snprintf(cmd, sizeof(cmd), "AT+COPS=%d", (int)mode);
     } else if (oper && oper[0] != '\0') {

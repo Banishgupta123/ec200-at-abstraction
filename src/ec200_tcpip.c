@@ -31,6 +31,12 @@ ec200_status_t ec200_tcp_open(ec200_handle_t    *h,
     if (!host || host[0] == '\0' || conn_id >= EC200_MAX_CONNECTIONS) {
         return EC200_ERR_PARAM;
     }
+
+    /* Reject over-long names: they would silently truncate into a
+     * malformed AT command. */
+    if (strlen(host) >= EC200_MAX_URL_LEN) {
+        return EC200_ERR_PARAM;
+    }
     if (ctx_id < 1U || ctx_id > 16U) {
         return EC200_ERR_PARAM;
     }
@@ -247,6 +253,12 @@ ec200_status_t ec200_tcp_dns_resolve(ec200_handle_t *h,
         return EC200_ERR_PARAM;
     }
 
+    /* Reject over-long names: they would silently truncate into a
+     * malformed AT command. */
+    if (strlen(host) >= EC200_MAX_URL_LEN) {
+        return EC200_ERR_PARAM;
+    }
+
     char cmd[EC200_MAX_URL_LEN + 32];
     (void)snprintf(cmd, sizeof(cmd), "AT+QIDNSGIP=%u,\"%s\"",
                    (unsigned)pdp_ctx, host);
@@ -303,6 +315,12 @@ ec200_status_t ec200_tcp_ping(ec200_handle_t      *h,
 {
     if (!host || host[0] == '\0' || !res ||
         pdp_ctx < 1U || pdp_ctx > 16U || count == 0U || count > 10U) {
+        return EC200_ERR_PARAM;
+    }
+
+    /* Reject over-long names: they would silently truncate into a
+     * malformed AT command. */
+    if (strlen(host) >= EC200_MAX_URL_LEN) {
         return EC200_ERR_PARAM;
     }
     memset(res, 0, sizeof(*res));

@@ -1386,6 +1386,16 @@ void test_ppp_escape_failures_and_null_args(void)
 
 /* ========================================================================= */
 
+void test_tcp_open_rejects_overlong_host(void)
+{
+    static char toolong[EC200_MAX_URL_LEN + 8];
+    memset(toolong, 'h', sizeof(toolong) - 1U);
+    toolong[sizeof(toolong) - 1U] = 0;
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_tcp_open(&h, 1, 0, EC200_SOCK_TCP, toolong, 80,
+                       EC200_ACCESS_BUFFER));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -1475,5 +1485,6 @@ int main(void)
     RUN_TEST(test_ppp_resume_session_gone);
     RUN_TEST(test_ppp_dial_failures);
     RUN_TEST(test_ppp_escape_failures_and_null_args);
+    RUN_TEST(test_tcp_open_rejects_overlong_host);
     return UNITY_END();
 }

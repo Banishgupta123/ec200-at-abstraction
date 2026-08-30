@@ -111,6 +111,14 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ec200 PRIVATE -Wconversion)
 endif()
 
+# Bound the worst-case stack frame: this library runs on MCUs where a task
+# stack is often only a few KB, so a large local buffer is a real hazard
+# (see EC200_SMS_*_BUF_LEN).  With -Werror this fails the build rather than
+# letting a frame grow unnoticed.
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(ec200 PRIVATE -Wstack-usage=1280)
+endif()
+
 if(EC200_ANALYZER AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_compile_options(ec200 PRIVATE -fanalyzer)
 endif()

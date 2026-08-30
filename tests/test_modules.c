@@ -1003,6 +1003,19 @@ void test_branch_power_get_cfun_error(void)
 
 /* ========================================================================= */
 
+void test_set_operator_rejects_overlong_name(void)
+{
+    /* An over-long name must be rejected, not silently truncated into a
+     * malformed AT+COPS command. */
+    static char toolong[EC200_MAX_OPERATOR_LEN + 8];
+    memset(toolong, 'o', sizeof(toolong) - 1U);
+    toolong[sizeof(toolong) - 1U] = 0;
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_net_set_operator(&h, EC200_COPS_MODE_MANUAL,
+                               EC200_COPS_FMT_NUMERIC, toolong,
+                               EC200_ACT_LTE));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -1086,5 +1099,6 @@ int main(void)
     RUN_TEST(test_branch_gnss_arms);
     RUN_TEST(test_branch_gnss_nmea_arms);
     RUN_TEST(test_branch_power_get_cfun_error);
+    RUN_TEST(test_set_operator_rejects_overlong_name);
     return UNITY_END();
 }

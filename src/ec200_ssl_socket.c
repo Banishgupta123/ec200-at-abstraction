@@ -22,6 +22,12 @@ ec200_status_t ec200_ssl_socket_open(ec200_handle_t *h,
         return EC200_ERR_PARAM;
     }
 
+    /* Reject over-long names: they would silently truncate into a
+     * malformed AT command. */
+    if (strlen(host) >= EC200_MAX_URL_LEN) {
+        return EC200_ERR_PARAM;
+    }
+
     char cmd[EC200_MAX_URL_LEN + 64];
     (void)snprintf(cmd, sizeof(cmd),
                    "AT+QSSLOPEN=%u,%u,%u,\"%s\",%u,0",

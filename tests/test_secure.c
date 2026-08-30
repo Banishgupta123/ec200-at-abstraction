@@ -601,6 +601,15 @@ void test_branch_ssl_socket_guard_arms(void)
 }
 
 /* ========================================================================= */
+void test_ssl_socket_open_rejects_overlong_host(void)
+{
+    static char toolong[EC200_MAX_URL_LEN + 8];
+    memset(toolong, 'h', sizeof(toolong) - 1U);
+    toolong[sizeof(toolong) - 1U] = 0;
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_ssl_socket_open(&h, 1, 2, 0, toolong, 443));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -632,5 +641,6 @@ int main(void)
     RUN_TEST(test_branch_file_guard_arms);
     RUN_TEST(test_branch_ssl_guard_arms);
     RUN_TEST(test_branch_ssl_socket_guard_arms);
+    RUN_TEST(test_ssl_socket_open_rejects_overlong_host);
     return UNITY_END();
 }
