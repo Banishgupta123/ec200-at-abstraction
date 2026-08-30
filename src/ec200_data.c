@@ -134,7 +134,19 @@ ec200_status_t ec200_data_connect(ec200_handle_t    *h,
         return EC200_ERR_PARAM;
     }
 
-    ec200_status_t st = ec200_data_set_pdp(h, ctx);
+    /*
+     * On LTE the attach default bearer (usually cid 1) is already active
+     * right after registration, and re-defining or re-activating an active
+     * context makes the firmware error.  If an address is already assigned,
+     * the connection exists — use it.
+     */
+    ec200_status_t st = ec200_data_get_ip(h, ctx->cid,
+                                          ctx->ip_addr, sizeof(ctx->ip_addr));
+    if (st == EC200_OK) {
+        return EC200_OK;
+    }
+
+    st = ec200_data_set_pdp(h, ctx);
     if (st != EC200_OK) {
         return st;
     }

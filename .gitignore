@@ -21,3 +21,4 @@ examples/esp_idf/sdkconfig
 examples/esp_idf/sdkconfig.old
 examples/esp_idf/managed_components/
 examples/esp_idf/dependencies.lock
+hw_logs/

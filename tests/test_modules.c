@@ -435,6 +435,8 @@ void test_data_connect_full_flow(void)
     ctx.type = EC200_PDP_TYPE_IP;
     (void)snprintf(ctx.apn, sizeof(ctx.apn), "%s", "internet");
 
+    /* Initial probe finds no address yet, then the full flow runs. */
+    lb_on_write("AT+CGPADDR=1", "\r\n+CGPADDR: 1\r\n\r\nOK\r\n");
     lb_on_write("AT+CGDCONT=1,\"IP\",\"internet\"", "\r\nOK\r\n");
     lb_on_write("AT+CGACT=1,1", "\r\nOK\r\n");
     lb_on_write("AT+CGPADDR=1",
@@ -442,6 +444,24 @@ void test_data_connect_full_flow(void)
     TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_data_connect(&h, &ctx));
     TEST_ASSERT_EQUAL_STRING("10.64.12.7", ctx.ip_addr);
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_data_connect(&h, NULL));
+}
+
+void test_data_connect_already_active(void)
+{
+    /* Regression (real Airtel LTE): the attach bearer is already active —
+     * connect must use the existing address instead of re-activating. */
+    ec200_pdp_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.cid  = 1;
+    ctx.type = EC200_PDP_TYPE_IP;
+
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"100.64.21.9\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_data_connect(&h, &ctx));
+    TEST_ASSERT_EQUAL_STRING("100.64.21.9", ctx.ip_addr);
+    /* No CGDCONT/CGACT must have been sent. */
+    TEST_ASSERT_NULL(strstr(lb_tx_data(), "AT+CGDCONT"));
+    TEST_ASSERT_NULL(strstr(lb_tx_data(), "AT+CGACT"));
 }
 
 void test_power_set_cfun_variants(void)
@@ -963,6 +983,7 @@ int main(void)
     RUN_TEST(test_net_wait_registered_timeout);
     RUN_TEST(test_data_activate_deactivate);
     RUN_TEST(test_data_connect_full_flow);
+    RUN_TEST(test_data_connect_already_active);
     RUN_TEST(test_power_set_cfun_variants);
     RUN_TEST(test_power_down_sleep_reset);
     RUN_TEST(test_gnss_start_stop);

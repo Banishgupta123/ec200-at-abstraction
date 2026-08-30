@@ -17,18 +17,33 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/uart.h"
+#include "driver/gpio.h"
 
 #include "ec200.h"
 
 /* -------------------------------------------------------------------------
- * Board wiring — adjust for your hardware
+ * Board wiring — isolated_dcu_esp32 V1.0 (EasyEDA schematic 2026-06)
+ *
+ *  TXD_MCU  IO8  -> TXS0104E -> EC200U MAIN_RXD
+ *  RXD_MCU  IO19 <- TXS0104E <- EC200U MAIN_TXD
+ *  IO9  = ON/OFF_MCU_S: BC817 pulls PWRKEY low while HIGH ("pressed")
+ *  IO10 = RESET_MCU_S:  BC817 asserts RESET while HIGH (keep LOW)
+ *
+ * The level shifter's OE is powered from the modem's VDD_EXT, so the UART
+ * is only alive once the module has booted.
  * ------------------------------------------------------------------------- */
-#define MODEM_UART_NUM      UART_NUM_1
-#define MODEM_UART_TX_PIN   (17)     /* ESP TX  -> EC200 RX */
-#define MODEM_UART_RX_PIN   (18)     /* ESP RX  <- EC200 TX */
-#define MODEM_UART_BAUD     (115200)
-#define MODEM_RX_BUF_BYTES  (4096)
-#define MODEM_APN           "internet"   /* replace with your APN */
+#define MODEM_UART_NUM        UART_NUM_1
+#define MODEM_UART_TX_PIN     (8)      /* TXD_MCU */
+#define MODEM_UART_RX_PIN     (19)     /* RXD_MCU */
+#define MODEM_UART_BAUD       (115200)
+#define MODEM_RX_BUF_BYTES    (4096)
+#define MODEM_APN             ""   /* "" = network-assigned default APN;
+                                     * set your carrier's APN if PDP fails */
+
+#define MODEM_PWRKEY_GPIO     (9)      /* HIGH = PWRKEY pressed */
+#define MODEM_RESET_GPIO      (10)     /* HIGH = RESET asserted */
+#define MODEM_PWRKEY_PULSE_MS (750)    /* EC200U power-on: >= 500 ms */
+#define MODEM_BOOT_WAIT_MS    (15000)  /* max wait for the module to boot */
 
 /* -------------------------------------------------------------------------
  * Transport callbacks
@@ -62,13 +77,43 @@ static void urc_handler(const char *urc, void *ctx)
 }
 
 /* -------------------------------------------------------------------------
+ * Modem power sequencing (board-specific)
+ * ------------------------------------------------------------------------- */
+static void modem_power_on(void)
+{
+    const gpio_config_t out = {
+        .pin_bit_mask = (1ULL << MODEM_PWRKEY_GPIO) |
+                        (1ULL << MODEM_RESET_GPIO),
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&out));
+    gpio_set_level(MODEM_RESET_GPIO, 0);   /* RESET released */
+    gpio_set_level(MODEM_PWRKEY_GPIO, 0);  /* PWRKEY released */
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    printf("Pulsing PWRKEY (%d ms)...\n", MODEM_PWRKEY_PULSE_MS);
+    gpio_set_level(MODEM_PWRKEY_GPIO, 1);  /* press */
+    vTaskDelay(pdMS_TO_TICKS(MODEM_PWRKEY_PULSE_MS));
+    gpio_set_level(MODEM_PWRKEY_GPIO, 0);  /* release */
+}
+
+/* -------------------------------------------------------------------------
  * Demo
  * ------------------------------------------------------------------------- */
 static ec200_handle_t s_modem;
 
 static void report(const char *step, ec200_status_t st)
 {
-    printf("%-24s %s\n", step, ec200_status_str(st));
+    printf("%-24s %s", step, ec200_status_str(st));
+    if (st == EC200_ERR_CME) {
+        printf(" (+CME ERROR: %d)", ec200_at_last_cme_error(&s_modem));
+    } else if (st == EC200_ERR_CMS) {
+        printf(" (+CMS ERROR: %d)", ec200_at_last_cms_error(&s_modem));
+    }
+    printf("\n");
 }
 
 void app_main(void)
@@ -90,15 +135,30 @@ void app_main(void)
                                  UART_PIN_NO_CHANGE));
 
     /* --- Bring-up ------------------------------------------------------- */
-    printf("\nEC200 demo (library v%d.%d.%d)\n\n",
+    printf("\nEC200 demo (library v%d.%d.%d) — isolated_dcu_esp32\n\n",
            EC200_LIB_VERSION_MAJOR, EC200_LIB_VERSION_MINOR,
            EC200_LIB_VERSION_PATCH);
 
-    ec200_status_t st = ec200_init(&s_modem, modem_write, modem_read,
-                                   modem_delay, NULL);
+    modem_power_on();
+
+    /* The module needs several seconds to boot; keep probing until it
+     * answers (the level shifter is dead until VDD_EXT comes up). */
+    printf("Waiting for the module to boot (max %d s)...\n",
+           MODEM_BOOT_WAIT_MS / 1000);
+    ec200_status_t st = EC200_ERR_TIMEOUT;
+    for (int waited = 0; waited < MODEM_BOOT_WAIT_MS; waited += 1000) {
+        st = ec200_init(&s_modem, modem_write, modem_read,
+                        modem_delay, NULL);
+        if (st == EC200_OK) {
+            printf("  module answered after ~%d s\n", waited / 1000);
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
     report("init", st);
     if (st != EC200_OK) {
-        printf("Modem not responding — check wiring/power. Halting.\n");
+        printf("Modem not responding — check 12V supply, SIM, wiring. "
+               "Halting.\n");
         return;
     }
 
@@ -136,6 +196,11 @@ void app_main(void)
         }
 
         if (st == EC200_OK) {
+            ec200_operator_info_t op;
+            if (ec200_net_get_operator(&s_modem, &op) == EC200_OK) {
+                printf("  Operator: \"%s\" (AcT %d)\n", op.oper, (int)op.act);
+            }
+
             ec200_pdp_context_t pdp = {
                 .cid  = 1,
                 .type = EC200_PDP_TYPE_IP,
@@ -145,6 +210,27 @@ void app_main(void)
             report("pdp connect", st);
             if (st == EC200_OK) {
                 printf("  IP: %s\n", pdp.ip_addr);
+
+                /* Full data path: fetch a real page over the modem. */
+                report("http ctx", ec200_http_set_context(&s_modem, 1));
+                report("http url",
+                       ec200_http_set_url(&s_modem, "http://example.com/"));
+                ec200_http_response_t hr;
+                st = ec200_http_get(&s_modem, 30000, &hr);
+                report("http get", st);
+                if (st == EC200_OK) {
+                    printf("  HTTP %u, content length %u\n",
+                           (unsigned)hr.status_code,
+                           (unsigned)hr.content_length);
+                    static uint8_t body[1025];
+                    uint32_t got = 0;
+                    st = ec200_http_read(&s_modem, body, sizeof(body) - 1U,
+                                         &got, 15000);
+                    report("http read", st);
+                    body[got] = '\0';
+                    printf("  body (%u bytes): %.120s...\n",
+                           (unsigned)got, (const char *)body);
+                }
             }
         }
     }
