@@ -57,6 +57,11 @@ static void ck_st(const char *desc, ec200_status_t got, ec200_status_t want)
            ec200_status_str(got));
     if (got == EC200_ERR_CME) { printf(":%d", ec200_at_last_cme_error(&m)); }
     if (got == EC200_ERR_CMS) { printf(":%d", ec200_at_last_cms_error(&m)); }
+    if (got == EC200_ERR_CME || got == EC200_ERR_CMS) {
+        /* With AT+CMEE=2 the module sends text, so the numeric code is
+         * -1 and this string carries the actual diagnostic. */
+        printf(" \"%s\"", ec200_at_last_error_text(&m));
+    }
     printf(")\n");
     if (ok) { g_pass++; } else { g_fail++; }
 }
@@ -134,6 +139,37 @@ static void test_core(void)
           ec200_at_send(&m, big, NULL, 0, 1000), EC200_ERR_OVERFLOW);
     /* engine still usable afterwards */
     ck_st("engine alive after overflow", ec200_check_at(&m), EC200_OK);
+}
+
+/* ========================================================================= */
+/* Error reporting: numeric (CMEE=1) vs verbose (CMEE=2)                     */
+/* ========================================================================= */
+static void test_error_reporting(void)
+{
+    banner("ERROR REPORTING");
+    uint32_t sz;
+
+    /* Numeric mode: the code parses and the text holds the digits. */
+    ck_st("set_cmee(1) numeric", ec200_set_cmee(&m, 1), EC200_OK);
+    ec200_status_t s = ec200_file_size(&m, "no_such_file.pem", &sz);
+    int code = ec200_at_last_cme_error(&m);
+    const char *txt = ec200_at_last_error_text(&m);
+    printf("        CMEE=1 -> %s code=%d text=\"%s\"\n",
+           ec200_status_str(s), code, txt);
+    ck("CMEE=1 gives a numeric code", s == EC200_ERR_CME && code >= 0);
+
+    /* Verbose mode: the module sends text.  Regression - atoi() used to
+     * turn that into the fake code 0 and the message was lost. */
+    ck_st("set_cmee(2) verbose", ec200_set_cmee(&m, 2), EC200_OK);
+    s = ec200_file_size(&m, "no_such_file.pem", &sz);
+    code = ec200_at_last_cme_error(&m);
+    txt = ec200_at_last_error_text(&m);
+    printf("        CMEE=2 -> %s code=%d text=\"%s\"\n",
+           ec200_status_str(s), code, txt);
+    ck("CMEE=2 still classified as CME", s == EC200_ERR_CME);
+    ck("CMEE=2 verbose text retained", txt[0] != 0);
+    ck("CMEE=2 reports -1, not a fake code 0",
+       (code == -1) || (txt[0] >= (char)0x30 && txt[0] <= (char)0x39));
 }
 
 /* ========================================================================= */
@@ -928,6 +964,7 @@ static void run_all(void *arg)
     ec200_net_wait_registered(&m, 60000);
 
     test_core();
+    test_error_reporting();
     test_sim();
     test_network();
     test_data();
