@@ -84,7 +84,7 @@ ec200_status_t ec200_gnss_get_location(ec200_handle_t       *h,
     loc->fix_valid       = (fix_stat > 0);
 
     /* Build a UTC timestamp string: combine date + utc */
-    snprintf(loc->utc_time, sizeof(loc->utc_time), "%s %s", date, utc);
+    (void)snprintf(loc->utc_time, sizeof(loc->utc_time), "%s %s", date, utc);
 
     return EC200_OK;
 }
@@ -94,13 +94,13 @@ ec200_status_t ec200_gnss_set_nmea_output(ec200_handle_t *h,
 {
     /* AT+QGPSCFG="nmeasrc",<enable> -- enable NMEA URC output */
     char cmd[48];
-    snprintf(cmd, sizeof(cmd), "AT+QGPSCFG=\"nmeasrc\",%u",
+    (void)snprintf(cmd, sizeof(cmd), "AT+QGPSCFG=\"nmeasrc\",%u",
              (nmea_types != 0) ? 1U : 0U);
     ec200_status_t st = ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_DEFAULT);
     if (st != EC200_OK) return st;
 
     /* Configure specific sentence types via AT+QGPSCFG="gpsnmeatype",<mask> */
-    snprintf(cmd, sizeof(cmd), "AT+QGPSCFG=\"gpsnmeatype\",%u",
+    (void)snprintf(cmd, sizeof(cmd), "AT+QGPSCFG=\"gpsnmeatype\",%u",
              (unsigned)nmea_types);
     return ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_DEFAULT);
 }

@@ -125,6 +125,9 @@ ec200_status_t ec200_sms_send(ec200_handle_t *h,
     if (text_len > EC200_MAX_SMS_TEXT_LEN) {
         return EC200_ERR_PARAM; /* refuse to silently truncate */
     }
+    /* Scanning a byte range for Ctrl-Z, not copying a string: the checker's
+     * null-terminator assumption does not apply.
+     * NOLINTNEXTLINE(bugprone-not-null-terminated-result) */
     if (memchr(text, SMS_CTRL_Z, text_len) != NULL) {
         return EC200_ERR_PARAM; /* Ctrl-Z would submit the message early */
     }

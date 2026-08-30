@@ -225,6 +225,26 @@ if(CPPCHECK_EXECUTABLE)
 endif()
 
 # ---------------------------------------------------------------------------
+# Static analysis: clang-tidy target (checks configured in .clang-tidy)
+# ---------------------------------------------------------------------------
+# NOTE: on Windows/MinGW clang may fail to parse the platform's own stdlib.h;
+# that is an environment limitation, not a finding.  CI runs this on Linux.
+find_program(CLANG_TIDY_EXECUTABLE clang-tidy)
+if(CLANG_TIDY_EXECUTABLE)
+    file(GLOB EC200_TIDY_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
+    add_custom_target(clang-tidy
+        COMMAND ${CLANG_TIDY_EXECUTABLE}
+                --quiet
+                -p ${CMAKE_BINARY_DIR}
+                --extra-arg=-Wno-unknown-warning-option
+                ${EC200_TIDY_SOURCES}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running clang-tidy over src/"
+        VERBATIM
+    )
+endif()
+
+# ---------------------------------------------------------------------------
 # Coverage report: gcovr target (requires EC200_COVERAGE=ON + a test run)
 # ---------------------------------------------------------------------------
 find_program(GCOVR_EXECUTABLE gcovr)

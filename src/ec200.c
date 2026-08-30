@@ -173,6 +173,9 @@ const char *ec200_status_str(ec200_status_t status)
         case EC200_ERR_OVERFLOW:    return "Buffer overflow";
         case EC200_ERR_UNSUPPORTED: return "Unsupported";
         case EC200_ERR_MODULE:      return "Module error";
+        /* Listed explicitly so every enumerator is documented here; the
+         * default also catches out-of-range integer values.
+         * NOLINTNEXTLINE(bugprone-branch-clone) */
         case EC200_ERR_UNKNOWN:     return "Unknown error";
         default:                    return "Unknown error";
     }

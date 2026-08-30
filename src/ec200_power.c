@@ -16,9 +16,9 @@ ec200_status_t ec200_power_set_cfun(ec200_handle_t *h,
 {
     char cmd[24];
     if (reset) {
-        snprintf(cmd, sizeof(cmd), "AT+CFUN=%d,1", (int)level);
+        (void)snprintf(cmd, sizeof(cmd), "AT+CFUN=%d,1", (int)level);
     } else {
-        snprintf(cmd, sizeof(cmd), "AT+CFUN=%d", (int)level);
+        (void)snprintf(cmd, sizeof(cmd), "AT+CFUN=%d", (int)level);
     }
     return ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_LONG);
 }
@@ -44,14 +44,14 @@ ec200_status_t ec200_power_get_cfun(ec200_handle_t *h, ec200_cfun_t *level)
 ec200_status_t ec200_power_down(ec200_handle_t *h, bool normal)
 {
     char cmd[24];
-    snprintf(cmd, sizeof(cmd), "AT+QPOWD=%d", normal ? 1 : 0);
+    (void)snprintf(cmd, sizeof(cmd), "AT+QPOWD=%d", normal ? 1 : 0);
     return ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_LONG);
 }
 
 ec200_status_t ec200_power_set_sleep(ec200_handle_t *h, bool enable)
 {
     char cmd[24];
-    snprintf(cmd, sizeof(cmd), "AT+QSCLK=%d", enable ? 1 : 0);
+    (void)snprintf(cmd, sizeof(cmd), "AT+QSCLK=%d", enable ? 1 : 0);
     return ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_DEFAULT);
 }
 

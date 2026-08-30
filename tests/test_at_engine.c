@@ -779,6 +779,70 @@ void test_branch_parse_int_field_no_colon(void)
 
 /* ========================================================================= */
 
+void test_verbose_cme_text_is_preserved(void)
+{
+    /* Regression (seen on hardware with AT+CMEE=2): the module answers with
+     * a verbose string, which atoi() silently turned into the fake code 0.
+     * The code must read -1 and the text must be retained. */
+    lb_on_write("AT+X", "\r\n+CME ERROR: Operation not allowed\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CME,
+        ec200_at_send(&h, "AT+X", NULL, 0, 1000));
+    TEST_ASSERT_EQUAL_INT(-1, ec200_at_last_cme_error(&h));
+    TEST_ASSERT_EQUAL_STRING("Operation not allowed",
+                             ec200_at_last_error_text(&h));
+
+    /* Numeric form still parses, and the text is kept too. */
+    lb_on_write("AT+Y", "\r\n+CME ERROR: 10\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CME,
+        ec200_at_send(&h, "AT+Y", NULL, 0, 1000));
+    TEST_ASSERT_EQUAL_INT(10, ec200_at_last_cme_error(&h));
+    TEST_ASSERT_EQUAL_STRING("10", ec200_at_last_error_text(&h));
+
+    /* Verbose CMS classifies as CMS even though the code is not numeric. */
+    lb_on_write("AT+Z", "\r\n+CMS ERROR: Invalid memory index\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CMS,
+        ec200_at_send(&h, "AT+Z", NULL, 0, 1000));
+    TEST_ASSERT_EQUAL_INT(-1, ec200_at_last_cms_error(&h));
+    TEST_ASSERT_EQUAL_STRING("Invalid memory index",
+                             ec200_at_last_error_text(&h));
+
+    /* Mixed alphanumeric payload is not numeric either. */
+    lb_on_write("AT+W", "\r\n+CME ERROR: 10x\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CME,
+        ec200_at_send(&h, "AT+W", NULL, 0, 1000));
+    TEST_ASSERT_EQUAL_INT(-1, ec200_at_last_cme_error(&h));
+
+    /* Over-long verbose text is truncated, never overflows. */
+    static char longerr[EC200_MAX_ERR_TEXT_LEN + 40];
+    (void)snprintf(longerr, sizeof(longerr), "\r\n+CME ERROR: ");
+    memset(longerr + strlen(longerr), 0x61, EC200_MAX_ERR_TEXT_LEN + 10);
+    longerr[strlen("\r\n+CME ERROR: ") + EC200_MAX_ERR_TEXT_LEN + 10] = 0;
+    strcat(longerr, "\r\n");
+    lb_on_write("AT+V", longerr);
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CME,
+        ec200_at_send(&h, "AT+V", NULL, 0, 1000));
+    TEST_ASSERT_EQUAL_size_t(EC200_MAX_ERR_TEXT_LEN - 1U,
+                             strlen(ec200_at_last_error_text(&h)));
+
+    /* Payload starting below '0' (a sign) is not numeric. */
+    lb_on_write("AT+T", "\r\n+CME ERROR: -5\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CME,
+        ec200_at_send(&h, "AT+T", NULL, 0, 1000));
+    TEST_ASSERT_EQUAL_INT(-1, ec200_at_last_cme_error(&h));
+
+    /* Digit-led payload with a later character below '0' (a space). */
+    lb_on_write("AT+S", "\r\n+CME ERROR: 10 5\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CME,
+        ec200_at_send(&h, "AT+S", NULL, 0, 1000));
+    TEST_ASSERT_EQUAL_INT(-1, ec200_at_last_cme_error(&h));
+
+    /* No error -> empty text; NULL handle is safe. */
+    lb_on_write("AT+U", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_at_send(&h, "AT+U", NULL, 0, 1000));
+    TEST_ASSERT_EQUAL_STRING("", ec200_at_last_error_text(&h));
+    TEST_ASSERT_EQUAL_STRING("", ec200_at_last_error_text(NULL));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -834,5 +898,6 @@ int main(void)
     RUN_TEST(test_branch_prompt_arms);
     RUN_TEST(test_branch_urc_table_arms);
     RUN_TEST(test_branch_parse_int_field_no_colon);
+    RUN_TEST(test_verbose_cme_text_is_preserved);
     return UNITY_END();
 }

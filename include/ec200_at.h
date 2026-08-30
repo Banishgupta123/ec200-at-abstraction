@@ -312,14 +312,31 @@ ec200_status_t ec200_at_parse_int_field(const char *line,
  * ------------------------------------------------------------------------- */
 
 /**
+ * @brief Retrieve the verbose +CME/+CMS error text from the last failure.
+ *
+ * With AT+CMEE=2 the module reports a string ("Operation not allowed")
+ * instead of a number; that text is kept here.  With CMEE=1 this holds the
+ * numeric payload as text.
+ *
+ * @param h  Library handle.
+ * @return   NUL-terminated text, or "" when the last command did not fail
+ *           with +CME/+CMS.  Valid until the next command is sent.
+ */
+const char *ec200_at_last_error_text(const ec200_handle_t *h);
+
+/**
  * @brief Retrieve the +CME ERROR code from the current/last transaction.
- * @return Integer error code, or -1 if the last failure was not CME.
+ * @return Integer error code, -1 if the last failure was not CME **or** the
+ *         module reported a verbose (non-numeric) message — see
+ *         ec200_at_last_error_text().
  */
 int ec200_at_last_cme_error(const ec200_handle_t *h);
 
 /**
  * @brief Retrieve the +CMS ERROR code from the current/last transaction.
- * @return Integer error code, or -1 if the last failure was not CMS.
+ * @return Integer error code, -1 if the last failure was not CMS **or** the
+ *         module reported a verbose (non-numeric) message — see
+ *         ec200_at_last_error_text().
  */
 int ec200_at_last_cms_error(const ec200_handle_t *h);
 

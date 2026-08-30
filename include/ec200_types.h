@@ -68,6 +68,7 @@ extern "C" {
 #define EC200_MAX_PAYLOAD_LEN     (1460U)   /**< Max MQTT/TCP payload length      */
 #define EC200_MAX_CONNECTIONS     (12U)     /**< Max simultaneous TCP connections */
 #define EC200_MAX_URC_HANDLERS    (8U)      /**< Max registered URC prefix handlers */
+#define EC200_MAX_ERR_TEXT_LEN    (64U)     /**< Retained +CME/+CMS error text     */
 
 /* -------------------------------------------------------------------------
  * Status / return codes
@@ -573,6 +574,8 @@ typedef struct {
 
     /* --- Cached state ---------------------------------------------------- */
     bool     _initialised;            /**< Set by ec200_init()              */
+    uint8_t  _last_err_kind;          /**< 0 = none, 1 = +CME, 2 = +CMS     */
+    char     _last_err_text[EC200_MAX_ERR_TEXT_LEN]; /**< Verbose error text */
     bool     _ppp_data_mode;          /**< UART carries PPP frames; AT calls
                                            return EC200_ERR_BUSY            */
     int      _last_cme_error;         /**< Last +CME ERROR code             */
