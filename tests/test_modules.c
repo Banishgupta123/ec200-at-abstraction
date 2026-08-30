@@ -446,6 +446,72 @@ void test_data_connect_full_flow(void)
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_data_connect(&h, NULL));
 }
 
+void test_data_connect_zero_ip_falls_through(void)
+{
+    /* Regression: CGPADDR reporting 0.0.0.0 means the context is defined
+     * but not up - connect must run the full activation flow, not report
+     * success with an unusable address. */
+    ec200_pdp_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.cid  = 1;
+    ctx.type = EC200_PDP_TYPE_IP;
+
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"0.0.0.0\"\r\n\r\nOK\r\n");
+    lb_on_write("AT+CGDCONT", "\r\nOK\r\n");
+    lb_on_write("AT+CGACT=1,1", "\r\nOK\r\n");
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"10.1.2.3\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_data_connect(&h, &ctx));
+    TEST_ASSERT_EQUAL_STRING("10.1.2.3", ctx.ip_addr);
+}
+
+void test_data_connect_activate_fails_but_address_present(void)
+{
+    /* The module rejects activating an already-active context; that is not
+     * a failure when an address is assigned afterwards. */
+    ec200_pdp_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.cid  = 1;
+    ctx.type = EC200_PDP_TYPE_IP;
+
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"0.0.0.0\"\r\n\r\nOK\r\n");
+    lb_on_write("AT+CGDCONT", "\r\nOK\r\n");
+    lb_on_write("AT+CGACT=1,1", "\r\nERROR\r\n");
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"10.9.9.9\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_data_connect(&h, &ctx));
+    TEST_ASSERT_EQUAL_STRING("10.9.9.9", ctx.ip_addr);
+}
+
+void test_data_connect_never_gets_address(void)
+{
+    /* Activation fails AND no address is ever assigned: report the
+     * activation error, not success. */
+    ec200_pdp_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.cid  = 1;
+    ctx.type = EC200_PDP_TYPE_IP;
+
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"0.0.0.0\"\r\n\r\nOK\r\n");
+    lb_on_write("AT+CGDCONT", "\r\nOK\r\n");
+    lb_on_write("AT+CGACT=1,1", "\r\nERROR\r\n");
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"0.0.0.0\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_data_connect(&h, &ctx));
+
+    /* Activation succeeds but the address query itself fails. */
+    SETUP_MODEM(&h);
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"0.0.0.0\"\r\n\r\nOK\r\n");
+    lb_on_write("AT+CGDCONT", "\r\nOK\r\n");
+    lb_on_write("AT+CGACT=1,1", "\r\nOK\r\n");
+    lb_on_write("AT+CGPADDR=1", "\r\n+CME ERROR: 30\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CME, ec200_data_connect(&h, &ctx));
+}
+
 void test_data_connect_already_active(void)
 {
     /* Regression (real Airtel LTE): the attach bearer is already active —
@@ -984,6 +1050,9 @@ int main(void)
     RUN_TEST(test_data_activate_deactivate);
     RUN_TEST(test_data_connect_full_flow);
     RUN_TEST(test_data_connect_already_active);
+    RUN_TEST(test_data_connect_zero_ip_falls_through);
+    RUN_TEST(test_data_connect_activate_fails_but_address_present);
+    RUN_TEST(test_data_connect_never_gets_address);
     RUN_TEST(test_power_set_cfun_variants);
     RUN_TEST(test_power_down_sleep_reset);
     RUN_TEST(test_gnss_start_stop);

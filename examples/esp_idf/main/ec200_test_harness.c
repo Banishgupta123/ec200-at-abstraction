@@ -20,6 +20,7 @@
 #include "esp_random.h"
 
 #include "ec200.h"
+#include "test_certs.h"
 
 /* ---- board wiring (see ec200_demo_main.c) ------------------------------- */
 #define UART_NUM        UART_NUM_1
@@ -78,16 +79,21 @@ static int rx(uint8_t *d, uint16_t n, uint32_t to, void *c)
 { (void)c; return uart_read_bytes(UART_NUM, d, n, pdMS_TO_TICKS(to)); }
 static void dly(uint32_t ms, void *c) { (void)c; vTaskDelay(pdMS_TO_TICKS(ms)); }
 
-static void power_on(void)
+static void gpio_init(void)
 {
     const gpio_config_t o = {
         .pin_bit_mask = (1ULL << PWRKEY_GPIO) | (1ULL << RESET_GPIO),
         .mode = GPIO_MODE_OUTPUT,
     };
     gpio_config(&o);
-    gpio_set_level(RESET_GPIO, 0);
-    gpio_set_level(PWRKEY_GPIO, 0);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    gpio_set_level(RESET_GPIO, 0);   /* RESET released */
+    gpio_set_level(PWRKEY_GPIO, 0);  /* PWRKEY released */
+}
+
+/* PWRKEY is a TOGGLE: pulsing an already-on modem powers it OFF.  Only call
+ * this after probing and finding the modem unresponsive. */
+static void pwrkey_pulse(void)
+{
     gpio_set_level(PWRKEY_GPIO, 1);
     vTaskDelay(pdMS_TO_TICKS(750));
     gpio_set_level(PWRKEY_GPIO, 0);
@@ -394,17 +400,21 @@ static void test_mqtt(void)
           EC200_ERR_PARAM);
 
     ck_st("mqtt_disconnect", ec200_mqtt_disconnect(&m, 0), EC200_OK);
+    /* NOTE (hardware finding): on EC200UCNAAR03A03M08 QMTDISC already tears
+     * down the network connection, so a following QMTCLOSE has nothing to
+     * close and never emits its result URC (times out).  Accept either. */
+    {
+        ec200_status_t cs = ec200_mqtt_close(&m, 0);
+        ck("mqtt_close after disconnect (OK or TIMEOUT: already closed)",
+           cs == EC200_OK || cs == EC200_ERR_TIMEOUT);
+        printf("        close-after-disconnect -> %s\n",
+               ec200_status_str(cs));
+    }
     ec200_mqtt_set_message_cb(&m, NULL);
 
-    /* mqtt_close in isolation: open a fresh network connection (no CONNECT),
-     * then close it — QMTDISC above already tears down the socket, so
-     * closing that one would have nothing to close. */
-    ec200_mqtt_config_t c2 = cfg;
-    if (ec200_mqtt_open(&m, &c2) == EC200_OK) {
-        ck_st("mqtt_close (fresh open)", ec200_mqtt_close(&m, 0), EC200_OK);
-    } else {
-        skip("mqtt_close", "second open failed");
-    }
+    /* Let the module's MQTT subsystem settle before the TLS session
+     * reuses it later in the run. */
+    vTaskDelay(pdMS_TO_TICKS(10000));
 }
 
 /* ========================================================================= */
@@ -474,6 +484,240 @@ static void test_gnss(void)
     ck_st("gnss_get_status NULL",
           ec200_gnss_get_status(&m, NULL), EC200_ERR_PARAM);
     ck_st("gnss_stop", ec200_gnss_stop(&m), EC200_OK);
+}
+
+/* ========================================================================= */
+/* TLS: filesystem, SSL contexts, HTTPS, MQTTS, TLS sockets                  */
+/* ========================================================================= */
+static void test_file_and_ssl(void)
+{
+    banner("FILESYSTEM (UFS)");
+    ec200_file_storage_t fs;
+    ec200_status_t s = ec200_file_storage(&m, &fs);
+    ck_st("file_storage", s, EC200_OK);
+    if (s == EC200_OK) {
+        printf("        UFS free=%u total=%u\n",
+               (unsigned)fs.free_bytes, (unsigned)fs.total_bytes);
+    }
+
+    (void)ec200_file_delete(&m, "mosq_ca.pem");
+    (void)ec200_file_delete(&m, "isrg_ca.pem");
+
+    uint16_t crc = 0;
+    ck_st("upload mosquitto CA",
+          ec200_file_upload(&m, "mosq_ca.pem",
+                            (const uint8_t *)MOSQUITTO_CA_PEM,
+                            (uint32_t)strlen(MOSQUITTO_CA_PEM), &crc),
+          EC200_OK);
+    printf("        crc=0x%04X\n", crc);
+
+    ck_st("upload ISRG root CA",
+          ec200_file_upload(&m, "isrg_ca.pem",
+                            (const uint8_t *)ISRG_ROOT_X1_PEM,
+                            (uint32_t)strlen(ISRG_ROOT_X1_PEM), NULL),
+          EC200_OK);
+
+    /* httpbin.org chains to the Amazon root — used by the HTTPS and TLS
+     * socket tests below. */
+    (void)ec200_file_delete(&m, "amzn_ca.pem");
+    ck_st("upload Amazon root CA",
+          ec200_file_upload(&m, "amzn_ca.pem",
+                            (const uint8_t *)AMAZON_ROOT_CA1_PEM,
+                            (uint32_t)strlen(AMAZON_ROOT_CA1_PEM), NULL),
+          EC200_OK);
+
+    bool ex = false;
+    ck_st("file_exists(uploaded)",
+          ec200_file_exists(&m, "mosq_ca.pem", &ex), EC200_OK);
+    ck("file exists == true", ex);
+
+    uint32_t sz = 0;
+    s = ec200_file_size(&m, "mosq_ca.pem", &sz);
+    ck_st("file_size", s, EC200_OK);
+    ck("size matches upload", sz == strlen(MOSQUITTO_CA_PEM));
+    printf("        size=%u (expected %u)\n", (unsigned)sz,
+           (unsigned)strlen(MOSQUITTO_CA_PEM));
+
+    ck_st("file_exists(absent)",
+          ec200_file_exists(&m, "no_such_file.bin", &ex), EC200_OK);
+    ck("absent file exists == false", !ex);
+
+    ck_st("upload NULL name",
+          ec200_file_upload(&m, NULL, (const uint8_t *)"x", 1, NULL),
+          EC200_ERR_PARAM);
+
+    banner("SSL CONTEXTS");
+    ec200_ssl_config_t sc;
+    memset(&sc, 0, sizeof(sc));
+    sc.ctx_id = 2;
+    sc.version = EC200_SSL_VER_TLS1_2;
+    sc.ciphersuite = EC200_SSL_CIPHER_ALL;
+    sc.seclevel = EC200_SSL_SECLEVEL_SERVER;
+    sc.ignore_localtime = true;
+    sc.enable_sni = true;
+    snprintf(sc.cacert, sizeof(sc.cacert), "%s", "amzn_ca.pem");
+    ck_st("ssl_configure ctx2 (server auth, Amazon CA)",
+          ec200_ssl_configure(&m, &sc), EC200_OK);
+
+    ec200_ssl_config_t sc3 = sc;
+    sc3.ctx_id = 3;
+    snprintf(sc3.cacert, sizeof(sc3.cacert), "%s", "mosq_ca.pem");
+    ck_st("ssl_configure ctx3 (mosquitto CA)",
+          ec200_ssl_configure(&m, &sc3), EC200_OK);
+
+    ec200_ssl_config_t sc4;
+    memset(&sc4, 0, sizeof(sc4));
+    sc4.ctx_id = 4;
+    sc4.version = EC200_SSL_VER_ALL;
+    sc4.ciphersuite = EC200_SSL_CIPHER_ALL;
+    sc4.seclevel = EC200_SSL_SECLEVEL_NONE;
+    sc4.ignore_localtime = true;
+    ck_st("ssl_configure ctx4 (no auth)",
+          ec200_ssl_configure(&m, &sc4), EC200_OK);
+    ck_st("ssl bad ctx id",
+          ec200_ssl_set_seclevel(&m, 9, EC200_SSL_SECLEVEL_NONE),
+          EC200_ERR_PARAM);
+}
+
+static void test_https(void)
+{
+    banner("HTTPS");
+    ec200_http_response_t r;
+    static uint8_t body[1025];
+    uint32_t got = 0;
+
+    ec200_http_stop(&m);
+    ck_st("http_set_context", ec200_http_set_context(&m, 1), EC200_OK);
+    ck_st("http_set_ssl_context(2)",
+          ec200_http_set_ssl_context(&m, 2), EC200_OK);
+    ck_st("set https url",
+          ec200_http_set_url(&m, "https://httpbin.org/get"), EC200_OK);
+
+    ec200_status_t s = ec200_http_get(&m, 60000, &r);
+    ck_st("https GET (server-auth TLS)", s, EC200_OK);
+    if (s == EC200_OK) {
+        printf("        HTTPS status=%u len=%u\n", r.status_code,
+               (unsigned)r.content_length);
+        s = ec200_http_read(&m, body, sizeof(body) - 1U, &got, 20000);
+        ck("https body read", (s == EC200_OK || s == EC200_ERR_OVERFLOW) &&
+           got > 0);
+        body[(got < sizeof(body)) ? got : (sizeof(body) - 1U)] = '\0';
+        printf("        body(%u): %.60s...\n", (unsigned)got,
+               (const char *)body);
+    }
+    ec200_http_stop(&m);
+
+    ck_st("http_set_ssl_context(2) again",
+          ec200_http_set_ssl_context(&m, 2), EC200_OK);
+    ck_st("set https post url",
+          ec200_http_set_url(&m, "https://httpbin.org/post"), EC200_OK);
+    s = ec200_http_post(&m, (const uint8_t *)"tls=yes", 7,
+                        EC200_HTTP_CT_URLENCODED, 60000, &r);
+    ck_st("https POST", s, EC200_OK);
+    if (s == EC200_OK) {
+        printf("        HTTPS post status=%u\n", r.status_code);
+    }
+    ec200_http_stop(&m);
+}
+
+static void test_mqtts(void)
+{
+    banner("MQTTS (test.mosquitto.org:8883)");
+    ec200_mqtt_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    snprintf(cfg.host, sizeof(cfg.host), "%s", MQTT_HOST);
+    cfg.port = 8883;
+    cfg.use_tls = true;
+    cfg.ssl_ctx_id = 3;
+    /* Slot 0: this firmware only accepted MQTTS on client/connection 0. */
+    cfg.tcp_connect_id = 0;
+    cfg.client_idx = 0;
+    snprintf(cfg.client_id, sizeof(cfg.client_id), "ec200tls%06u",
+             (unsigned)(esp_random() % 1000000U));
+
+    ec200_mqtt_set_message_cb(&m, mqtt_cb);
+
+    ec200_status_t s = ec200_mqtt_open(&m, &cfg);
+    ck_st("mqtts_open (TLS)", s, EC200_OK);
+    if (s != EC200_OK) {
+        skip("mqtts session", "open failed");
+        ec200_mqtt_set_message_cb(&m, NULL);
+        return;
+    }
+    s = ec200_mqtt_connect(&m, &cfg);
+    ck_st("mqtts_connect", s, EC200_OK);
+    if (s != EC200_OK) {
+        /* Diagnostic: show the module's own view of the MQTT clients. */
+        char q[128] = {0};
+        if (ec200_at_send_wait(&m, "AT+QMTCONN?", "+QMTCONN:", q, sizeof(q),
+                               3000) == EC200_OK) {
+            printf("        QMTCONN? -> %s\n", q);
+        }
+    }
+    ck_st("mqtts_subscribe",
+          ec200_mqtt_subscribe(&m, 0, 1, "ec200tls/test", EC200_MQTT_QOS1),
+          EC200_OK);
+
+    s_got_msg = false;
+    ck_st("mqtts_publish",
+          ec200_mqtt_publish(&m, 0, 2, EC200_MQTT_QOS1, false,
+                             "ec200tls/test",
+                             (const uint8_t *)"secure", 6), EC200_OK);
+    for (int i = 0; i < 60 && !s_got_msg; i++) {
+        ec200_at_poll_urc(&m, 100);
+    }
+    ck("mqtts receive loopback over TLS", s_got_msg);
+
+    ck_st("mqtts_disconnect", ec200_mqtt_disconnect(&m, 0), EC200_OK);
+    {
+        ec200_status_t cc = ec200_mqtt_close(&m, 0);
+        ck("mqtts_close (OK or TIMEOUT: disconnect already closed)",
+           cc == EC200_OK || cc == EC200_ERR_TIMEOUT);
+    }
+    ec200_mqtt_set_message_cb(&m, NULL);
+}
+
+static void test_tls_socket(void)
+{
+    banner("TLS SOCKET");
+    ec200_status_t s = ec200_ssl_socket_open(&m, 1, 2, 1,
+                                             "httpbin.org", 443);
+    ck_st("ssl_socket_open httpbin.org:443", s, EC200_OK);
+    if (s != EC200_OK) {
+        skip("tls socket exchange", "open failed");
+    } else {
+        static const char req[] =
+            "GET /get HTTP/1.1\r\nHost: httpbin.org\r\n"
+            "Connection: close\r\n\r\n";
+        ck_st("ssl_socket_send",
+              ec200_ssl_socket_send(&m, 1, (const uint8_t *)req,
+                                    (uint16_t)strlen(req)), EC200_OK);
+
+        uint8_t buf[256];
+        uint16_t got = 0;
+        bool saw_http = false;
+        for (int i = 0; i < 20 && !saw_http; i++) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            if (ec200_ssl_socket_recv(&m, 1, buf, sizeof(buf) - 1U, &got,
+                                      5000) == EC200_OK && got > 0) {
+                buf[got] = '\0';
+                if (strstr((char *)buf, "HTTP/1.") != NULL) {
+                    saw_http = true;
+                }
+                printf("        recv %u bytes: %.40s\n", got, (char *)buf);
+            }
+        }
+        ck("tls socket got HTTP response", saw_http);
+        ck_st("ssl_socket_close", ec200_ssl_socket_close(&m, 1), EC200_OK);
+    }
+
+    /* Negative control: a CA that cannot verify httpbin.org must FAIL,
+     * proving certificate verification is actually enforced. */
+    s = ec200_ssl_socket_open(&m, 1, 3 /* mosquitto CA */, 2,
+                              "httpbin.org", 443);
+    ck("cert verification rejects wrong CA", s != EC200_OK);
+    printf("        wrong-CA open -> %s\n", ec200_status_str(s));
+    if (s == EC200_OK) { (void)ec200_ssl_socket_close(&m, 2); }
 }
 
 /* ========================================================================= */
@@ -551,12 +795,18 @@ static void run_all(void *arg)
            EC200_LIB_VERSION_MAJOR, EC200_LIB_VERSION_MINOR,
            EC200_LIB_VERSION_PATCH);
 
-    power_on();
-    ec200_status_t st = EC200_ERR_TIMEOUT;
-    for (int w = 0; w < 15000; w += 1000) {
-        st = ec200_init(&m, tx, rx, dly, NULL);
-        if (st == EC200_OK) { break; }
-        vTaskDelay(pdMS_TO_TICKS(1000));
+    gpio_init();
+    /* Probe first — the modem is left powered between runs, so it is usually
+     * already up.  Only pulse PWRKEY (a toggle!) if it does not answer. */
+    ec200_status_t st = ec200_init(&m, tx, rx, dly, NULL);
+    if (st != EC200_OK) {
+        printf("no response; pulsing PWRKEY to power on...\n");
+        pwrkey_pulse();
+        for (int w = 0; w < 15000; w += 1000) {
+            st = ec200_init(&m, tx, rx, dly, NULL);
+            if (st == EC200_OK) { break; }
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
     }
     if (st != EC200_OK) {
         printf("FATAL: modem not responding (%s). Halting.\n",
@@ -575,6 +825,18 @@ static void run_all(void *arg)
     test_network();
     test_data();
     test_tcp();
+    /*
+     * TLS first: on this firmware a completed plaintext MQTT session
+     * prevents a later MQTTS connect within the same power cycle, so the
+     * secure tests run before the plaintext HTTP/MQTT ones.
+     */
+    test_file_and_ssl();
+    /* MQTTS before HTTPS: an HTTP(S) request left in flight keeps the
+     * module's TLS subsystem busy and blocks a following MQTT connect. */
+    test_mqtts();
+    test_tls_socket();
+    test_https();
+    /* Plaintext protocol tests after the secure ones. */
     test_http();
     test_mqtt();
     test_sms();

@@ -146,14 +146,19 @@ static ec200_mqtt_config_t mqtt_cfg(void)
 void test_mqtt_open_async_ok(void)
 {
     ec200_mqtt_config_t cfg = mqtt_cfg();
+    lb_on_write("AT+QMTCFG=\"ssl\",0,0,0", "\r\nOK\r\n");
     lb_on_write("AT+QMTOPEN=0,\"broker.example.com\",1883",
                 "\r\nOK\r\n+QMTOPEN: 0,0\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_mqtt_open(&h, &cfg));
+    /* Regression: TLS must be explicitly disabled for plaintext opens so a
+     * previous MQTTS session cannot leave SSL enabled on the module. */
+    TEST_ASSERT_NOT_NULL(strstr(lb_tx_data(), "AT+QMTCFG=\"ssl\",0,0,0"));
 }
 
 void test_mqtt_open_pdp_error(void)
 {
     ec200_mqtt_config_t cfg = mqtt_cfg();
+    lb_on_write("AT+QMTCFG=\"ssl\"", "\r\nOK\r\n");
     lb_on_write("AT+QMTOPEN", "\r\nOK\r\n+QMTOPEN: 0,3\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_mqtt_open(&h, &cfg));
 }
@@ -650,6 +655,7 @@ void test_tcp_bytes_available_param_and_failures(void)
 void test_mqtt_result_parse_error(void)
 {
     ec200_mqtt_config_t cfg = mqtt_cfg();
+    lb_on_write("AT+QMTCFG=\"ssl\"", "\r\nOK\r\n");
     lb_on_write("AT+QMTOPEN", "\r\nOK\r\n+QMTOPEN: 0\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE, ec200_mqtt_open(&h, &cfg));
 }
@@ -658,6 +664,7 @@ void test_mqtt_command_failure_paths(void)
 {
     ec200_mqtt_config_t cfg = mqtt_cfg();
 
+    lb_on_write("AT+QMTCFG=\"ssl\"", "\r\nOK\r\n");
     lb_on_write("AT+QMTOPEN", "\r\nERROR\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_mqtt_open(&h, &cfg));
 

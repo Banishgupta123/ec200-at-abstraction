@@ -172,7 +172,9 @@ ec200_status_t ec200_http_post(ec200_handle_t          *h,
         return st;
     }
 
-    st = ec200_at_wait_final(h, EC200_AT_TIMEOUT_DEFAULT);
+    /* The module may be busy (TLS handshake, large body) before it
+     * acknowledges the body, so allow a generous window for this OK. */
+    st = ec200_at_wait_final(h, EC200_AT_TIMEOUT_LONG);
     if (st != EC200_OK) {
         return st;
     }
