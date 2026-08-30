@@ -187,7 +187,47 @@ ec200_at_poll_urc(&modem, 0);
 | `ec200_gnss.h` | QGPS start/stop/status, QGPSLOC, QGPSCFG NMEA types |
 | `ec200_power.h` | CFUN get/set/reset, QPOWD, QSCLK |
 | `ec200_ppp.h` | PPP dial-up control plane: dial, escape (+++), resume, hangup |
+| `ec200_file.h` | Modem UFS: upload/delete/list/size/storage (cert storage) |
+| `ec200_ssl.h` | TLS context config (QSSLCFG): version, cipher, seclevel, certs |
+| `ec200_ssl_socket.h` | TLS client sockets (QSSLOPEN/SEND/RECV/CLOSE) |
 | `ec200_at.h` | AT transaction primitives, raw I/O, URC registry |
+
+## TLS (HTTPS / MQTTS / secure sockets)
+
+Secure transport is a three-step setup — upload certs, configure an SSL
+context, then point a protocol at it:
+
+```c
+/* 1. Upload the CA (and, for mutual TLS, client cert+key) to the modem FS */
+ec200_file_upload(&modem, "ca.pem", ca_pem, ca_len, NULL);
+
+/* 2. Configure an SSL context */
+ec200_ssl_config_t ssl = {
+    .ctx_id      = 2,
+    .version     = EC200_SSL_VER_TLS1_2,
+    .ciphersuite = EC200_SSL_CIPHER_ALL,
+    .seclevel    = EC200_SSL_SECLEVEL_SERVER,   /* verify the server */
+    .cacert      = "ca.pem",
+};
+ec200_ssl_configure(&modem, &ssl);
+
+/* 3a. HTTPS */
+ec200_http_set_ssl_context(&modem, 2);
+ec200_http_set_url(&modem, "https://example.com/api");   /* then GET/POST */
+
+/* 3b. MQTTS */
+ec200_mqtt_config_t mq = { .host="broker", .port=8883,
+                           .use_tls=true, .ssl_ctx_id=2, /* ... */ };
+ec200_mqtt_open(&modem, &mq);
+
+/* 3c. Raw TLS socket */
+ec200_ssl_socket_open(&modem, 1 /*pdp*/, 2 /*ssl*/, 0 /*conn*/,
+                      "host", 443);
+```
+
+Security levels: `SECLEVEL_NONE` (encrypt only), `SECLEVEL_SERVER`
+(verify server against your CA), `SECLEVEL_MUTUAL` (also present a client
+cert+key). Certs live in the modem's filesystem and are referenced by name.
 
 ## PPP
 

@@ -62,6 +62,17 @@ ec200_status_t ec200_http_set_context(ec200_handle_t *h, uint8_t ctx_id)
     return ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_DEFAULT);
 }
 
+ec200_status_t ec200_http_set_ssl_context(ec200_handle_t *h, uint8_t ssl_ctx)
+{
+    if (ssl_ctx > 5U) {
+        return EC200_ERR_PARAM;
+    }
+    char cmd[48];
+    (void)snprintf(cmd, sizeof(cmd), "AT+QHTTPCFG=\"sslctxid\",%u",
+                   (unsigned)ssl_ctx);
+    return ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_DEFAULT);
+}
+
 ec200_status_t ec200_http_set_url(ec200_handle_t *h, const char *url)
 {
     if (!url) {

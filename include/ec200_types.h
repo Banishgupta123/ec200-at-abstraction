@@ -305,6 +305,69 @@ typedef struct {
 } ec200_socket_t;
 
 /* -------------------------------------------------------------------------
+ * SSL / TLS types
+ * ------------------------------------------------------------------------- */
+#define EC200_MAX_FILENAME_LEN   (64U)     /**< Modem-FS filename length  */
+#define EC200_SSL_CIPHER_ALL     (0xFFFFU) /**< Support all cipher suites */
+
+/**
+ * @brief TLS protocol version (AT+QSSLCFG="sslversion").
+ */
+typedef enum {
+    EC200_SSL_VER_SSL3   = 0,
+    EC200_SSL_VER_TLS1_0 = 1,
+    EC200_SSL_VER_TLS1_1 = 2,
+    EC200_SSL_VER_TLS1_2 = 3,
+    EC200_SSL_VER_ALL    = 4,  /**< Negotiate the highest available */
+} ec200_ssl_version_t;
+
+/**
+ * @brief TLS authentication level (AT+QSSLCFG="seclevel").
+ */
+typedef enum {
+    EC200_SSL_SECLEVEL_NONE   = 0, /**< Encrypt only, no auth (MITM-able) */
+    EC200_SSL_SECLEVEL_SERVER = 1, /**< Verify server against CA          */
+    EC200_SSL_SECLEVEL_MUTUAL = 2, /**< Server + client-cert (mutual TLS) */
+} ec200_ssl_seclevel_t;
+
+/**
+ * @brief SSL context configuration (AT+QSSLCFG family).
+ *
+ * Certs are referenced by filename in the modem's filesystem; upload them
+ * first with ec200_file_upload().  Leave a filename empty ("") to skip it.
+ */
+typedef struct {
+    uint8_t              ctx_id;      /**< SSL context id (0-5)              */
+    ec200_ssl_version_t  version;     /**< TLS version                       */
+    uint16_t             ciphersuite; /**< ::EC200_SSL_CIPHER_ALL or 0xXXXX  */
+    ec200_ssl_seclevel_t seclevel;    /**< Authentication level              */
+    char cacert[EC200_MAX_FILENAME_LEN];     /**< CA cert file (seclevel>=1) */
+    char clientcert[EC200_MAX_FILENAME_LEN]; /**< Client cert (seclevel==2)  */
+    char clientkey[EC200_MAX_FILENAME_LEN];  /**< Client key  (seclevel==2)  */
+    bool ignore_localtime; /**< Skip cert validity-time check (no RTC sync)  */
+    bool enable_sni;       /**< Send TLS SNI extension                       */
+} ec200_ssl_config_t;
+
+/* -------------------------------------------------------------------------
+ * File system types
+ * ------------------------------------------------------------------------- */
+/**
+ * @brief One entry returned by ec200_file_list() (AT+QFLST).
+ */
+typedef struct {
+    char     name[EC200_MAX_FILENAME_LEN]; /**< File name                 */
+    uint32_t size;                         /**< Size in bytes             */
+} ec200_file_info_t;
+
+/**
+ * @brief Storage-space summary (AT+QFLDS).
+ */
+typedef struct {
+    uint32_t free_bytes;   /**< Free space (bytes)      */
+    uint32_t total_bytes;  /**< Total space (bytes)     */
+} ec200_file_storage_t;
+
+/* -------------------------------------------------------------------------
  * HTTP types
  * ------------------------------------------------------------------------- */
 /**
@@ -366,6 +429,8 @@ typedef struct {
     bool     clean_session;             /**< Clean session flag        */
     uint8_t  tcp_connect_id;            /**< AT+QMTOPEN context (0-5)  */
     uint8_t  client_idx;                /**< AT+QMTCONN client index   */
+    bool     use_tls;                   /**< MQTTS: enable TLS (QMTCFG "ssl") */
+    uint8_t  ssl_ctx_id;                /**< SSL context id when use_tls   */
 } ec200_mqtt_config_t;
 
 /**
