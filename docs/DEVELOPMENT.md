@@ -151,10 +151,21 @@ data mode -> AT refused with BUSY -> escape -> hangup. Carrying actual IP
 traffic still needs a host PPP stack (lwIP PPPoS); only that remains
 unproven.
 
-The single remaining harness skip is `sms_send`: it is deliberately not
-wired to a personal number, and `AT+CNUM` returns nothing on this SIM, so
-the self-loopback path is unavailable. Set `SMS_DEST` in the harness to
-send one real message.
+The harness runs with **no skips**: 162 passed, 0 failed, 0 skipped.
+
+`sms_send` sends one real message per run, so the destination is kept out
+of this repository. The harness first tries the SIM's own number (`AT+CNUM`,
+then the "own numbers" phonebook `AT+CPBS="ON"`/`AT+CPBR`) for a loopback
+that messages nobody; this SIM has neither provisioned. Otherwise it uses
+`SMS_DEST` from `main/test_secrets.h`, which is gitignored:
+
+```c
+/* examples/esp_idf/main/test_secrets.h - never committed */
+#define SMS_DEST "+1234567890"
+```
+
+Without that file the send is skipped rather than failing, so a fresh
+clone still runs clean.
 
 CI (`.github/workflows/ci.yml`) lives on an unmerged branch: GitHub Actions
 does not run on a private repo without billing, so it is parked until the

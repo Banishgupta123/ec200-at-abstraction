@@ -25,3 +25,6 @@ hw_logs/
 # Local session transcripts (contain SIM identifiers and full chat history).
 # Kept for cross-machine continuity via OneDrive; never committed or pushed.
 .session/
+
+# Local test configuration (personal numbers etc.) - never committed.
+test_secrets.h

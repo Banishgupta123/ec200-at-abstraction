@@ -33,7 +33,18 @@
 
 /* ---- test parameters ---------------------------------------------------- */
 #define APN             "internet"
-#define SMS_DEST        ""    /* MASKED: send disabled (inbox/bad-path only) */
+/* SMS destination.  Left empty here on purpose: this file is public, so a
+ * personal number must never be committed.  Put
+ *   #define SMS_DEST "+1234567890"
+ * in main/test_secrets.h (gitignored) to enable the live send test. */
+#if defined(__has_include)
+#  if __has_include("test_secrets.h")
+#    include "test_secrets.h"
+#  endif
+#endif
+#ifndef SMS_DEST
+#define SMS_DEST        ""
+#endif
 #define TCP_HOST        "tcpbin.com"
 #define TCP_PORT        (4242)                /* line echo */
 #define MQTT_HOST       "test.mosquitto.org"
@@ -479,7 +490,22 @@ static void test_sms(void)
             memcpy(self_num, q3 + 1, (size_t)(q4 - q3 - 1));
         }
     }
-    printf("        own number (CNUM) = \"%s\"\n", self_num);
+    if (self_num[0] == '\0') {
+        /* Some SIMs leave CNUM empty but keep the MSISDN in the "own
+         * numbers" phonebook.  Free to read and avoids messaging anyone. */
+        char pbr[96];
+        if (ec200_at_send(&m, "AT+CPBS=\"ON\"", NULL, 0, 3000) == EC200_OK &&
+            ec200_at_send_wait(&m, "AT+CPBR=1", "+CPBR:", pbr, sizeof(pbr),
+                               3000) == EC200_OK) {
+            const char *a1 = strchr(pbr, '\"');
+            const char *a2 = a1 ? strchr(a1 + 1, '\"') : NULL;
+            if (a1 && a2 && (size_t)(a2 - a1 - 1) < sizeof(self_num)) {
+                memcpy(self_num, a1 + 1, (size_t)(a2 - a1 - 1));
+            }
+        }
+    }
+    printf("        own number = \"%s\" (empty = not provisioned)\n",
+           self_num);
 
     const char *dest = (SMS_DEST[0] != '\0') ? SMS_DEST
                      : (self_num[0] != '\0' ? self_num : NULL);
