@@ -116,27 +116,29 @@ ec200_status_t ec200_http_get(ec200_handle_t       *h,
     return parse_http_result(raw, resp);
 }
 
-ec200_status_t ec200_http_post(ec200_handle_t       *h,
-                               const uint8_t        *body,
-                               uint32_t              body_len,
-                               const char           *content_type,
-                               uint32_t              timeout_ms,
-                               ec200_http_response_t *resp)
+ec200_status_t ec200_http_post(ec200_handle_t          *h,
+                               const uint8_t           *body,
+                               uint32_t                 body_len,
+                               ec200_http_content_type_t content_type,
+                               uint32_t                 timeout_ms,
+                               ec200_http_response_t   *resp)
 {
     if (!resp || !body || body_len == 0U || body_len > 65535U) {
         return EC200_ERR_PARAM;
     }
+    if ((int)content_type < 0 || (int)content_type > 4) {
+        return EC200_ERR_PARAM;
+    }
 
-    /* Set content-type if provided. */
-    if (content_type) {
-        char cfg_cmd[128];
-        (void)snprintf(cfg_cmd, sizeof(cfg_cmd),
-                       "AT+QHTTPCFG=\"contenttype\",\"%s\"", content_type);
-        ec200_status_t cst = ec200_at_send(h, cfg_cmd, NULL, 0,
-                                           EC200_AT_TIMEOUT_DEFAULT);
-        if (cst != EC200_OK) {
-            return cst;
-        }
+    /* The EC200U's AT+QHTTPCFG="contenttype" takes a numeric index (0-4),
+     * NOT a MIME string. */
+    char cfg_cmd[48];
+    (void)snprintf(cfg_cmd, sizeof(cfg_cmd),
+                   "AT+QHTTPCFG=\"contenttype\",%d", (int)content_type);
+    ec200_status_t cst = ec200_at_send(h, cfg_cmd, NULL, 0,
+                                       EC200_AT_TIMEOUT_DEFAULT);
+    if (cst != EC200_OK) {
+        return cst;
     }
 
     char cmd[64];

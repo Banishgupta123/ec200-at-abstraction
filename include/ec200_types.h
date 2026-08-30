@@ -319,6 +319,21 @@ typedef enum {
 } ec200_http_method_t;
 
 /**
+ * @brief HTTP request body content type.
+ *
+ * These are the numeric indices `AT+QHTTPCFG="contenttype",<n>` expects — the
+ * EC200U does NOT accept a free-form MIME string.  JSON (4) requires recent
+ * firmware; unsupported values are rejected by the module (+CME ERROR).
+ */
+typedef enum {
+    EC200_HTTP_CT_URLENCODED   = 0, /**< application/x-www-form-urlencoded */
+    EC200_HTTP_CT_TEXT_PLAIN   = 1, /**< text/plain                       */
+    EC200_HTTP_CT_OCTET_STREAM = 2, /**< application/octet-stream         */
+    EC200_HTTP_CT_MULTIPART    = 3, /**< multipart/form-data              */
+    EC200_HTTP_CT_JSON         = 4, /**< application/json (recent FW)     */
+} ec200_http_content_type_t;
+
+/**
  * @brief HTTP response summary.
  */
 typedef struct {
@@ -396,10 +411,12 @@ typedef struct {
  * @brief Functional level for AT+CFUN.
  */
 typedef enum {
-    EC200_CFUN_MIN    = 0,  /**< Minimum functionality (RF off)    */
-    EC200_CFUN_FULL   = 1,  /**< Full functionality                */
-    EC200_CFUN_DISABLE_TX = 4, /**< Disable TX only               */
-    EC200_CFUN_AIRPLANE = 7,   /**< Airplane mode                 */
+    EC200_CFUN_MIN     = 0,  /**< Minimum functionality             */
+    EC200_CFUN_FULL    = 1,  /**< Full functionality                */
+    EC200_CFUN_RF_OFF  = 4,  /**< RF off (airplane mode)            */
+    /** @deprecated Alias for ::EC200_CFUN_RF_OFF.  The EC200U has no CFUN=7;
+     *  the older value 7 was rejected by the module (+CME ERROR). */
+    EC200_CFUN_AIRPLANE = EC200_CFUN_RF_OFF,
 } ec200_cfun_t;
 
 /* -------------------------------------------------------------------------

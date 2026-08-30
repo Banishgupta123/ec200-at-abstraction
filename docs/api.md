@@ -322,7 +322,8 @@ ec200_status_t ec200_http_set_url(ec200_handle_t *h, const char *url);
 ec200_status_t ec200_http_get(ec200_handle_t *h, uint32_t timeout_ms,
                               ec200_http_response_t *resp);
 ec200_status_t ec200_http_post(ec200_handle_t *h, const uint8_t *body,
-                               uint32_t body_len, const char *content_type,
+                               uint32_t body_len,
+                               ec200_http_content_type_t content_type,
                                uint32_t timeout_ms, ec200_http_response_t *resp);
 ec200_status_t ec200_http_read(ec200_handle_t *h, uint8_t *buf, size_t buf_sz,
                                uint32_t *bytes_read, uint32_t timeout_ms);
@@ -330,7 +331,9 @@ ec200_status_t ec200_http_stop(ec200_handle_t *h);
 ```
 
 GET/POST are asynchronous (`OK`, then `+QHTTPGET:`/`+QHTTPPOST:` URC) —
-handled internally. `http_read` streams the body between `CONNECT` and the
+handled internally. `content_type` is a numeric `ec200_http_content_type_t`
+(the EC200U's `AT+QHTTPCFG="contenttype"` takes an index 0–4, **not** a MIME
+string). `http_read` streams the body between `CONNECT` and the
 trailing `OK`; if the buffer fills, the remainder is drained and
 `EC200_ERR_OVERFLOW` is returned with `bytes_read == buf_sz` (reserve one
 byte yourself if you want to NUL-terminate).

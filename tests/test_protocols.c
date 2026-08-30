@@ -277,9 +277,10 @@ void test_http_post_flow(void)
     ec200_http_response_t resp;
     TEST_ASSERT_EQUAL_INT(EC200_OK,
         ec200_http_post(&h, (const uint8_t *)"hello=world", 11,
-                        "application/x-www-form-urlencoded", 10000, &resp));
+                        EC200_HTTP_CT_URLENCODED, 10000, &resp));
     TEST_ASSERT_EQUAL_UINT16(200, resp.status_code);
-    TEST_ASSERT_NOT_NULL(strstr(lb_tx_data(), "contenttype"));
+    /* the numeric index, not a MIME string, must go on the wire */
+    TEST_ASSERT_NOT_NULL(strstr(lb_tx_data(), "\"contenttype\",0"));
 }
 
 void test_http_read_body_intact(void)
@@ -805,41 +806,54 @@ void test_http_post_param_and_failures(void)
     const uint8_t body[4] = "abc";
 
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
-        ec200_http_post(&h, NULL, 4, NULL, 1000, &resp));
+        ec200_http_post(&h, NULL, 4, EC200_HTTP_CT_URLENCODED, 1000, &resp));
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
-        ec200_http_post(&h, body, 0, NULL, 1000, &resp));
+        ec200_http_post(&h, body, 0, EC200_HTTP_CT_URLENCODED, 1000, &resp));
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
-        ec200_http_post(&h, body, 70000, NULL, 1000, &resp));
+        ec200_http_post(&h, body, 70000, EC200_HTTP_CT_URLENCODED, 1000,
+                        &resp));
+    /* out-of-range content type (both arms of the range check) */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_http_post(&h, body, 3, (ec200_http_content_type_t)9, 1000,
+                        &resp));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_http_post(&h, body, 3, (ec200_http_content_type_t)-1, 1000,
+                        &resp));
 
     /* content-type configuration fails */
-    lb_on_write("contenttype", "\r\nERROR\r\n");
+    lb_on_write("\"contenttype\",1", "\r\nERROR\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE,
-        ec200_http_post(&h, body, 3, "text/plain", 1000, &resp));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_TEXT_PLAIN, 1000, &resp));
 
     /* CONNECT refused */
+    SETUP_MODEM(&h);
+    lb_on_write("contenttype", "\r\nOK\r\n");
     lb_on_write("AT+QHTTPPOST", "\r\nERROR\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE,
-        ec200_http_post(&h, body, 3, NULL, 1000, &resp));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_URLENCODED, 1000, &resp));
 
     /* Body write fails */
     SETUP_MODEM(&h);
+    lb_on_write("contenttype", "\r\nOK\r\n");
     lb_on_write("AT+QHTTPPOST", "\r\nCONNECT\r\n");
-    lb_fail_write_after(1);
+    lb_fail_write_after(2);
     TEST_ASSERT_EQUAL_INT(EC200_ERR_IO,
-        ec200_http_post(&h, body, 3, NULL, 1000, &resp));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_URLENCODED, 1000, &resp));
 
     /* No OK after the body */
     SETUP_MODEM(&h);
+    lb_on_write("contenttype", "\r\nOK\r\n");
     lb_on_write("AT+QHTTPPOST", "\r\nCONNECT\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT,
-        ec200_http_post(&h, body, 3, NULL, 300, &resp));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_URLENCODED, 300, &resp));
 
     /* OK but no result URC */
     SETUP_MODEM(&h);
+    lb_on_write("contenttype", "\r\nOK\r\n");
     lb_on_write("AT+QHTTPPOST", "\r\nCONNECT\r\n");
     lb_on_write("abc", "\r\nOK\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT,
-        ec200_http_post(&h, body, 3, NULL, 300, &resp));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_URLENCODED, 300, &resp));
 }
 
 void test_http_read_param_and_failures(void)
@@ -1165,7 +1179,7 @@ void test_branch_http_param_arms(void)
     /* NULL response summary for POST */
     const uint8_t body[4] = "abc";
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
-        ec200_http_post(&h, body, 3, NULL, 1000, NULL));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_URLENCODED, 1000, NULL));
 }
 
 void test_branch_http_read_io_error_mid_body(void)
