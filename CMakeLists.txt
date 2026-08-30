@@ -28,6 +28,7 @@ if(ESP_PLATFORM)
             src/ec200_file.c
             src/ec200_ssl.c
             src/ec200_ssl_socket.c
+            src/ec200_time.c
         INCLUDE_DIRS include
     )
     return()
@@ -100,6 +101,7 @@ add_library(ec200 STATIC
     src/ec200_file.c
     src/ec200_ssl.c
     src/ec200_ssl_socket.c
+    src/ec200_time.c
 )
 target_include_directories(ec200 PUBLIC include)
 ec200_strict_warnings(ec200)
@@ -154,6 +156,7 @@ if(EC200_BUILD_TESTS)
     add_ec200_test(test_modules)
     add_ec200_test(test_protocols)
     add_ec200_test(test_secure)
+    add_ec200_test(test_netdiag)
 
     # -- CMock-based transport-contract suite ------------------------------
     find_program(RUBY_EXECUTABLE ruby HINTS "C:/Ruby32-x64/bin")

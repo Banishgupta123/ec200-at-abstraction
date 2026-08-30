@@ -158,11 +158,15 @@ ec200_status_t ec200_http_post(ec200_handle_t          *h,
                    timeout_secs(timeout_ms),
                    timeout_secs(timeout_ms));
 
-    /* CONNECT prompt → body → OK → +QHTTPPOST URC. */
+    /* CONNECT prompt → body → OK → +QHTTPPOST URC.  The prompt can be
+     * delayed (TLS setup, busy module), so honour the caller's budget
+     * rather than a fixed short default. */
     char connect_buf[32];
     ec200_status_t st = ec200_at_send_expect(h, cmd, "CONNECT",
                                              connect_buf, sizeof(connect_buf),
-                                             EC200_AT_TIMEOUT_DEFAULT);
+                                             (timeout_ms > EC200_AT_TIMEOUT_DEFAULT)
+                                               ? timeout_ms
+                                               : EC200_AT_TIMEOUT_DEFAULT);
     if (st != EC200_OK) {
         return st;
     }

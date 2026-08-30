@@ -178,10 +178,10 @@ ec200_at_poll_urc(&modem, 0);
 |---|---|
 | `ec200.h` | Init, IMEI, firmware, echo, CMEE, status strings |
 | `ec200_sim.h` | PIN status, enter PIN, IMSI, ICCID |
-| `ec200_network.h` | CREG/CGREG/CEREG, CSQ/QCSQ, COPS, wait-for-register |
+| `ec200_network.h` | CREG/CGREG/CEREG, CSQ/QCSQ, COPS, QNWINFO, QSPN, CGATT, wait-for-register |
 | `ec200_sms.h` | Set format, send, read, list, delete |
 | `ec200_data.h` | CGDCONT, QICSGP auth, CGACT, CGPADDR, connect helper |
-| `ec200_tcpip.h` | QIOPEN, QISEND, QIRD, QICLOSE, QISTATE |
+| `ec200_tcpip.h` | QIOPEN, QISEND, QIRD, QICLOSE, QISTATE, DNS (QIDNSGIP), ping (QPING) |
 | `ec200_http.h` | QHTTPCFG, QHTTPURL, QHTTPGET, QHTTPPOST, QHTTPREAD |
 | `ec200_mqtt.h` | QMTOPEN, QMTCONN, QMTSUB, QMTPUBEX, QMTDISC, message callback |
 | `ec200_gnss.h` | QGPS start/stop/status, QGPSLOC, QGPSCFG NMEA types |
@@ -190,6 +190,7 @@ ec200_at_poll_urc(&modem, 0);
 | `ec200_file.h` | Modem UFS: upload/delete/list/size/storage (cert storage) |
 | `ec200_ssl.h` | TLS context config (QSSLCFG): version, cipher, seclevel, certs |
 | `ec200_ssl_socket.h` | TLS client sockets (QSSLOPEN/SEND/RECV/CLOSE) |
+| `ec200_time.h` | Module clock, network time (QLTS/CTZU), NTP sync (QNTP) |
 | `ec200_at.h` | AT transaction primitives, raw I/O, URC registry |
 
 ## TLS (HTTPS / MQTTS / secure sockets)

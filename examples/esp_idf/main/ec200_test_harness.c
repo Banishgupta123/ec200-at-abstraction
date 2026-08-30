@@ -486,6 +486,113 @@ static void test_gnss(void)
     ck_st("gnss_stop", ec200_gnss_stop(&m), EC200_OK);
 }
 
+/* Release any lingering HTTP/socket session and let the module's network
+ * subsystems settle.  Heavy back-to-back TLS/HTTP/MQTT work otherwise
+ * leaves the module busy and the next subsystem times out. */
+static void settle(void)
+{
+    (void)ec200_http_stop(&m);
+    for (uint8_t c = 0; c < 3U; c++) {
+        (void)ec200_tcp_close(&m, c);
+        (void)ec200_ssl_socket_close(&m, c);
+    }
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    (void)ec200_check_at(&m);
+}
+
+/* ========================================================================= */
+/* Network diagnostics: QNWINFO / QSPN / CGATT, DNS, ping, clock, NTP        */
+/* ========================================================================= */
+static void test_netdiag(void)
+{
+    banner("NETWORK DIAGNOSTICS");
+
+    ec200_network_info_t ni;
+    ec200_status_t s = ec200_net_get_info(&m, &ni);
+    ck_st("net_get_info (QNWINFO)", s, EC200_OK);
+    if (s == EC200_OK) {
+        printf("        act=\"%s\" oper=\"%s\" band=\"%s\" ch=%u\n",
+               ni.act, ni.oper, ni.band, (unsigned)ni.channel);
+    }
+
+    char spn[40];
+    s = ec200_net_get_spn(&m, spn, sizeof(spn));
+    ck_st("net_get_spn (QSPN)", s, EC200_OK);
+    if (s == EC200_OK) { printf("        SPN=\"%s\"\n", spn); }
+
+    bool att = false;
+    ck_st("net_is_attached", ec200_net_is_attached(&m, &att), EC200_OK);
+    ck("packet domain attached", att);
+
+    ck_st("get_info NULL", ec200_net_get_info(&m, NULL), EC200_ERR_PARAM);
+    ck_st("get_spn NULL", ec200_net_get_spn(&m, NULL, 0), EC200_ERR_PARAM);
+
+    banner("DNS / PING");
+    char ip[48];
+    s = ec200_tcp_dns_resolve(&m, 1, "example.com", ip, sizeof(ip), 30000);
+    ck_st("dns_resolve example.com", s, EC200_OK);
+    if (s == EC200_OK) { printf("        resolved -> %s\n", ip); }
+
+    s = ec200_tcp_dns_resolve(&m, 1, "no-such-host.invalid", ip, sizeof(ip),
+                              30000);
+    ck("dns_resolve invalid host fails", s != EC200_OK);
+    printf("        invalid host -> %s\n", ec200_status_str(s));
+
+    ec200_ping_result_t pr;
+    s = ec200_tcp_ping(&m, 1, "8.8.8.8", 3, &pr, 30000);
+    ck_st("ping 8.8.8.8", s, EC200_OK);
+    if (s == EC200_OK) {
+        printf("        sent=%u recv=%u lost=%u rtt min/avg/max=%u/%u/%u ms\n",
+               pr.sent, pr.received, pr.lost,
+               (unsigned)pr.min_rtt_ms, (unsigned)pr.avg_rtt_ms,
+               (unsigned)pr.max_rtt_ms);
+    }
+    ck_st("ping bad count", ec200_tcp_ping(&m, 1, "8.8.8.8", 0, &pr, 1000),
+          EC200_ERR_PARAM);
+
+}
+
+/* ========================================================================= */
+/* Clock / NTP (runs last: a slow NTP attempt must not stall other tests)    */
+/* ========================================================================= */
+static void test_clock(void)
+{
+    banner("CLOCK / NTP");
+    ec200_datetime_t dt;
+    ec200_status_t s;
+    ck_st("time_set_auto_update", ec200_time_set_auto_update(&m, true),
+          EC200_OK);
+
+    s = ec200_time_get(&m, &dt);
+    ck_st("time_get (CCLK)", s, EC200_OK);
+    if (s == EC200_OK) {
+        printf("        module clock %04u-%02u-%02u %02u:%02u:%02u tz=%d\n",
+               dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
+               (int)dt.tz_quarters);
+    }
+
+    s = ec200_time_sync_ntp(&m, 1, "pool.ntp.org", 0, 60000);
+    /* NTP reachability depends on the operator (many block/deprioritise
+     * UDP 123), so a timeout here is an environment result, not a defect. */
+    ck("time_sync_ntp (OK, module error, or unreachable)",
+       s == EC200_OK || s == EC200_ERR_MODULE || s == EC200_ERR_TIMEOUT);
+    printf("        NTP -> %s\n", ec200_status_str(s));
+    if (s == EC200_OK && ec200_time_get(&m, &dt) == EC200_OK) {
+        printf("        after NTP  %04u-%02u-%02u %02u:%02u:%02u\n",
+               dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+        ck("clock year is plausible after NTP", dt.year >= 2024U);
+    }
+
+    s = ec200_time_get_network(&m, &dt);
+    ck("time_get_network (QLTS) OK or not-yet-available",
+       s == EC200_OK || s == EC200_ERR_PARSE || s == EC200_ERR_CME);
+    printf("        QLTS -> %s\n", ec200_status_str(s));
+
+    ck_st("time_get NULL", ec200_time_get(&m, NULL), EC200_ERR_PARAM);
+    ck_st("ntp bad ctx", ec200_time_sync_ntp(&m, 0, "x", 0, 1000),
+          EC200_ERR_PARAM);
+}
+
 /* ========================================================================= */
 /* TLS: filesystem, SSL contexts, HTTPS, MQTTS, TLS sockets                  */
 /* ========================================================================= */
@@ -825,21 +932,31 @@ static void run_all(void *arg)
     test_network();
     test_data();
     test_tcp();
+    settle();
+    test_netdiag();
     /*
      * TLS first: on this firmware a completed plaintext MQTT session
      * prevents a later MQTTS connect within the same power cycle, so the
      * secure tests run before the plaintext HTTP/MQTT ones.
      */
+    settle();
     test_file_and_ssl();
     /* MQTTS before HTTPS: an HTTP(S) request left in flight keeps the
      * module's TLS subsystem busy and blocks a following MQTT connect. */
+    settle();
     test_mqtts();
+    settle();
     test_tls_socket();
+    settle();
     test_https();
     /* Plaintext protocol tests after the secure ones. */
+    settle();
     test_http();
+    settle();
     test_mqtt();
     test_sms();
+    settle();
+    test_clock();
     test_gnss();
     test_ppp();
     test_power();   /* powers the modem off at the end */

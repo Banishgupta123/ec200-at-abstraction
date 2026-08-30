@@ -109,6 +109,7 @@
  * | @ref EC200_File    | ec200_file.h        | Modem filesystem (cert storage)    |
  * | @ref EC200_SSL     | ec200_ssl.h         | TLS context configuration          |
  * | @ref EC200_SSLSock | ec200_ssl_socket.h  | TLS client sockets                 |
+ * | @ref EC200_Time    | ec200_time.h        | Clock, network time, NTP sync      |
  *
  * @section err_sec Error Handling
  *
@@ -153,6 +154,7 @@
 #include "ec200_file.h"
 #include "ec200_ssl.h"
 #include "ec200_ssl_socket.h"
+#include "ec200_time.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -195,6 +195,41 @@ typedef struct {
 /** Sentinel for "value not available" in ec200_signal_quality_t. */
 #define EC200_SIGNAL_UNKNOWN  ((int16_t)-32768)
 
+/**
+ * @brief Radio access technology / network information (AT+QNWINFO).
+ */
+typedef struct {
+    char act[24];        /**< Access technology, e.g. "FDD LTE"      */
+    char oper[16];       /**< Operator numeric (MCC+MNC)             */
+    char band[24];       /**< Band, e.g. "LTE BAND 3"                */
+    uint32_t channel;    /**< Channel / EARFCN                       */
+} ec200_network_info_t;
+
+/**
+ * @brief Ping result summary (AT+QPING).
+ */
+typedef struct {
+    uint16_t sent;        /**< Requests sent                          */
+    uint16_t received;    /**< Replies received                       */
+    uint16_t lost;        /**< Lost packets                           */
+    uint32_t min_rtt_ms;  /**< Minimum round-trip time (ms)           */
+    uint32_t max_rtt_ms;  /**< Maximum round-trip time (ms)           */
+    uint32_t avg_rtt_ms;  /**< Average round-trip time (ms)           */
+} ec200_ping_result_t;
+
+/**
+ * @brief Module date/time (AT+CCLK / AT+QLTS).
+ */
+typedef struct {
+    uint16_t year;    /**< Full year, e.g. 2026        */
+    uint8_t  month;   /**< 1-12                        */
+    uint8_t  day;     /**< 1-31                        */
+    uint8_t  hour;    /**< 0-23                        */
+    uint8_t  minute;  /**< 0-59                        */
+    uint8_t  second;  /**< 0-59                        */
+    int8_t   tz_quarters; /**< Time zone in quarter-hours from UTC */
+} ec200_datetime_t;
+
 /* -------------------------------------------------------------------------
  * SIM types
  * ------------------------------------------------------------------------- */

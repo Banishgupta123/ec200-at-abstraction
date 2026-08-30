@@ -117,6 +117,45 @@ ec200_status_t ec200_net_set_operator(ec200_handle_t    *h,
 ec200_status_t ec200_net_wait_registered(ec200_handle_t *h,
                                          uint32_t        timeout_ms);
 
+/**
+ * @brief Query the serving network's technology, operator, band and channel
+ *        (AT+QNWINFO).
+ *
+ * @param h     Initialised handle.
+ * @param info  Output: access technology, operator, band, channel.
+ * @return EC200_OK, EC200_ERR_PARAM, or EC200_ERR_PARSE when not camped.
+ */
+ec200_status_t ec200_net_get_info(ec200_handle_t       *h,
+                                  ec200_network_info_t *info);
+
+/**
+ * @brief Read the SIM's service-provider name (AT+QSPN).
+ *
+ * @param h     Initialised handle.
+ * @param name  Output buffer for the provider name.
+ * @param sz    Size of @p name.
+ * @return EC200_OK or an error code.
+ */
+ec200_status_t ec200_net_get_spn(ec200_handle_t *h, char *name, size_t sz);
+
+/**
+ * @brief Attach to or detach from the packet domain (AT+CGATT).
+ *
+ * @param h       Initialised handle.
+ * @param attach  true = attach, false = detach.
+ * @return EC200_OK or an error code.
+ */
+ec200_status_t ec200_net_set_attached(ec200_handle_t *h, bool attach);
+
+/**
+ * @brief Query packet-domain attachment state (AT+CGATT?).
+ *
+ * @param h         Initialised handle.
+ * @param attached  Output: true when attached.
+ * @return EC200_OK or an error code.
+ */
+ec200_status_t ec200_net_is_attached(ec200_handle_t *h, bool *attached);
+
 /** @} */ /* EC200_Network */
 
 #ifdef __cplusplus
