@@ -279,9 +279,15 @@ a warm reset it powers the running modem *off*) and prints
 `last_error_text()`. **Fix:** a CMake option so CI compiles both; probe
 before pulsing; use `last_error_text()`.
 
-### E4. `gcovr` not installed on the `banis` machine
-Coverage cannot be run there until `pacman -S mingw-w64-x86_64-python-lxml`
-then `pip install gcovr`. See `docs/DEVELOPMENT.md`.
+### E4. `gcovr` is not on PATH on either machine
+On `banis` it is installed (gcovr 8.6, in the Python 3.13 user `Scripts`
+directory) but not on PATH, so a plain `gcovr` looks absent and the coverage
+gate is easy to skip by accident — which happened on 2026-09-05 before it was
+run properly (100/100/100 confirmed). On a fresh box it needs
+`pacman -S mingw-w64-x86_64-python-lxml` then `pip install gcovr`. **Fix:**
+have `CMakeLists.txt` search the Python user `Scripts` directory for
+`GCOVR_EXECUTABLE`, and make the `coverage` target fail loudly when it is
+not found instead of silently configuring without it.
 
 ### E5. Harness cleanup
 - `RAW CPSMS?` / `RAW CEDRXS?` / `RAW CEDRXRDP` prints at
