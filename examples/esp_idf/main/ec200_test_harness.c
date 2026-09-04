@@ -467,16 +467,23 @@ static void test_mqtt(void)
 /* ========================================================================= */
 /* SMS                                                                       */
 /* ========================================================================= */
-static void test_sms(void)
-{
-    banner("SMS");
-    ck_st("set_format(text)",
-          ec200_sms_set_format(&m, EC200_SMS_FORMAT_TEXT), EC200_OK);
+/* Destination for the tests that really transmit, resolved once per run.
+ *
+ * SMS_DEST (from the gitignored test_secrets.h) wins when present.  Failing
+ * that the SIM's own number is used — AT+CNUM, then the "own numbers"
+ * phonebook — so the loopback messages nobody.  NULL when neither exists,
+ * which is why the send tests skip rather than fail on a fresh clone. */
+static char g_sms_dest[EC200_MAX_PHONE_NUM_LEN];
+static bool g_sms_dest_is_self;
+static bool g_sms_dest_resolved;
 
-    /* Send test.  SMS_DEST is deliberately empty so no message ever
-     * reaches a personal phone; instead ask the SIM for its own number
-     * (AT+CNUM) and send to that, then verify it arrives in the inbox.
-     * A closed loop that exercises the full CMGS prompt/Ctrl-Z path. */
+static const char *sms_dest(void)
+{
+    if (g_sms_dest_resolved) {
+        return (g_sms_dest[0] != '\0') ? g_sms_dest : NULL;
+    }
+    g_sms_dest_resolved = true;
+
     char self_num[EC200_MAX_PHONE_NUM_LEN] = {0};
     char cnum[96];
     if (ec200_at_send_wait(&m, "AT+CNUM", "+CNUM:", cnum, sizeof(cnum),
@@ -507,15 +514,31 @@ static void test_sms(void)
     printf("        own number = \"%s\" (empty = not provisioned)\n",
            self_num);
 
-    const char *dest = (SMS_DEST[0] != '\0') ? SMS_DEST
-                     : (self_num[0] != '\0' ? self_num : NULL);
+    if (SMS_DEST[0] != '\0') {
+        (void)snprintf(g_sms_dest, sizeof(g_sms_dest), "%s", SMS_DEST);
+        g_sms_dest_is_self = false;
+    } else if (self_num[0] != '\0') {
+        (void)snprintf(g_sms_dest, sizeof(g_sms_dest), "%s", self_num);
+        g_sms_dest_is_self = true;
+    }
+    return (g_sms_dest[0] != '\0') ? g_sms_dest : NULL;
+}
+
+static void test_sms(void)
+{
+    banner("SMS");
+    ck_st("set_format(text)",
+          ec200_sms_set_format(&m, EC200_SMS_FORMAT_TEXT), EC200_OK);
+
+    /* Exercises the full CMGS prompt/Ctrl-Z path against a real number. */
+    const char *dest = sms_dest();
     if (dest != NULL) {
         uint8_t before = 0, after = 0;
         ec200_sms_message_t tmp[8];
         (void)ec200_sms_list(&m, EC200_SMS_STAT_ALL, tmp, 8, &before);
         ck_st("sms_send", ec200_sms_send(&m, dest, "EC200 harness test"),
               EC200_OK);
-        if (dest == self_num) {
+        if (g_sms_dest_is_self) {
             /* Loopback: wait for our own message to come back. */
             for (int i = 0; i < 20 && after <= before; i++) {
                 vTaskDelay(pdMS_TO_TICKS(3000));
@@ -606,30 +629,44 @@ static void test_sms_extras(void)
     ck_st("get_smsc NULL", ec200_sms_get_smsc(&m, NULL, sizeof(smsc)),
           EC200_ERR_PARAM);
 
-    /* --- write to storage, then delete it again (CMGW) ----------------- */
-    /* CMGW only stores; nothing is transmitted and nobody is messaged. */
-    int stored_index = -1;
-    ec200_status_t wst = ec200_sms_write(&m, "+10000000000",
-                                         "EC200 harness stored draft",
-                                         &stored_index);
-    ck_st("sms_write (stored, not sent)", wst, EC200_OK);
-    if (wst == EC200_OK) {
-        printf("        stored at index=%d\n", stored_index);
-        ck("sms_write reported an index", stored_index >= 0);
+    /* --- store a draft, send it, then clean up (CMGW + CMSS) ----------- */
+    /* This transmits: CMSS puts the stored draft on the air, so it needs a
+     * real destination.  Same resolution as the CMGS test — the SIM's own
+     * number when SMS_DEST is unset, so the message comes back to us. */
+    const char *dest = sms_dest();
+    if (dest != NULL) {
+        int stored_index = -1;
+        ec200_status_t wst = ec200_sms_write(&m, dest,
+                                             "EC200 harness stored draft",
+                                             &stored_index);
+        ck_st("sms_write (stored, not yet sent)", wst, EC200_OK);
+        if (wst == EC200_OK) {
+            printf("        stored at index=%d\n", stored_index);
+            ck("sms_write reported an index", stored_index >= 0);
 
-        if (stored_index >= 0) {
-            ec200_sms_message_t drafted;
-            ck_st("read back the stored draft",
-                  ec200_sms_read(&m, stored_index, &drafted), EC200_OK);
-            ck_st("delete the stored draft",
-                  ec200_sms_delete(&m, stored_index), EC200_OK);
+            if (stored_index >= 0) {
+                ec200_sms_message_t drafted;
+                ck_st("read back the stored draft",
+                      ec200_sms_read(&m, stored_index, &drafted), EC200_OK);
+                ck("draft kept its body",
+                   strstr(drafted.text, "stored draft") != NULL);
+
+                int mr = -1;
+                ck_st("sms_send_stored (CMSS transmits)",
+                      ec200_sms_send_stored(&m, stored_index, &mr), EC200_OK);
+                printf("        message reference=%d\n", mr);
+                ck("CMSS reported a message reference", mr >= 0);
+
+                /* CMSS leaves the stored copy behind (now STO SENT). */
+                ck_st("delete the sent draft",
+                      ec200_sms_delete(&m, stored_index), EC200_OK);
+            }
+        } else {
+            skip("stored-draft read/send/delete", "sms_write failed");
         }
-        /* CMSS is intentionally NOT exercised against a live index: it
-         * would transmit a real message to the stored destination. */
-        skip("sms_send_stored", "CMSS would transmit a real message");
     } else {
-        skip("stored-draft read/delete", "sms_write failed");
-        skip("sms_send_stored", "sms_write failed");
+        skip("sms_write / sms_send_stored",
+             "SMS_DEST empty and CNUM gave no own number");
     }
     ck_st("write rejects Ctrl-Z",
           ec200_sms_write(&m, "+10000000000", "a\x1a" "b", NULL),

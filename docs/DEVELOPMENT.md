@@ -141,8 +141,11 @@ they are not in the manuals.
   integers — while `AT+CPMS?` interleaves the names
   (`"ME",u,t,"ME",u,t,…`). One parser serves both via a field stride; do not
   assume the set form replies with a bare `OK`. `ME` reports 100 slots.
-- `AT+CMGW` returns the assigned index and stores nothing on the network, so
-  it is safe in an automated harness. `AT+CMSS` is **not**: it transmits.
+- `AT+CMGW` returns the assigned index and transmits nothing. `AT+CMSS`
+  does transmit, and returns its own message reference (observed: 129). It
+  **leaves the stored copy in place** afterwards, now marked `STO SENT`, so
+  a harness that stores-and-sends must delete the slot or the storage fills
+  up over repeated runs.
 - Error payloads: with `AT+CMEE=2` the module *may* answer with text
   instead of a number, so the code is parsed only when the payload is
   entirely numeric and the raw text is always kept
@@ -178,21 +181,22 @@ data mode -> AT refused with BUSY -> escape -> hangup. Carrying actual IP
 traffic still needs a host PPP stack (lwIP PPPoS); only that remains
 unproven.
 
-The harness runs **192 passed, 0 failed, 1 skipped**. The single skip is
-deliberate and permanent: `test_sms_extras()` does not call
-`ec200_sms_send_stored()` against a live index, because CMSS transmits a
-real message. It proves the storage path instead — CMGW writes a draft, it
-is read back, then deleted.
+The harness runs with **no skips**: 195 passed, 0 failed, 0 skipped.
 
-The count varies by one or two between runs: a few sub-tests are guarded on
-a conditional (an NTP sync that can time out, an inbox that may be empty),
-and their guards correctly skip the assertion rather than failing. 191-192
-with zero failures is the healthy range.
+The count can vary by one or two between runs: a few sub-tests are guarded
+on a precondition (an NTP sync that can time out, an inbox that may be
+empty, a TLS connect that can fail), and those guards correctly skip the
+assertion rather than failing. Zero failures is the invariant; a skip means
+a precondition genuinely did not hold, so read the reason before assuming a
+regression.
 
-Note the harness sends **one real SMS per run** when
-`main/test_secrets.h` defines `SMS_DEST`. Re-flashing or resetting the board
-re-runs everything, so avoid rebooting it repeatedly just to re-capture a
-log — each reboot costs a message.
+The harness now sends **two real SMS per run** when `main/test_secrets.h`
+defines `SMS_DEST` — one via CMGS, one via CMSS from storage. Both resolve
+their destination through `sms_dest()`, which prefers `SMS_DEST` and
+otherwise falls back to the SIM's own number so the message loops back to
+the rig instead of reaching anyone. Re-flashing or resetting re-runs
+everything, so each reboot costs two messages: do not reboot the board
+repeatedly just to re-capture a log.
 
 ### Rig on a different machine
 
