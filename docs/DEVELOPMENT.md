@@ -137,6 +137,12 @@ they are not in the manuals.
   two attempts were needed in practice.
 - A fresh boot restores the factory **`ATE1`**, so echo must be disabled
   again after any power cycle.
+- `AT+CPMS=` (set form) **does** answer `+CPMS: u1,t1,u2,t2,u3,t3` — six bare
+  integers — while `AT+CPMS?` interleaves the names
+  (`"ME",u,t,"ME",u,t,…`). One parser serves both via a field stride; do not
+  assume the set form replies with a bare `OK`. `ME` reports 100 slots.
+- `AT+CMGW` returns the assigned index and stores nothing on the network, so
+  it is safe in an automated harness. `AT+CMSS` is **not**: it transmits.
 - Error payloads: with `AT+CMEE=2` the module *may* answer with text
   instead of a number, so the code is parsed only when the payload is
   entirely numeric and the raw text is always kept
@@ -158,9 +164,8 @@ binary payloads (including `0x1A`) transit intact.
 Batches 1 (TLS: filesystem, SSL contexts, HTTPS, MQTTS, TLS sockets) and
 2 (QNWINFO/QSPN/CGATT, DNS, ping, clock/NTP) are done and hardware-proven.
 
-Batch 3 (SMS completeness: `CPMS`, `CSCA`, `CMGW`/`CMSS`, `CNMI`) is written
-and host-tested at 100% line/function/branch, **but not yet hardware-proven**
-— see the note at the end of this section.
+Batches 1 (TLS), 2 (network diagnostics) and 3 (SMS completeness: `CPMS`,
+`CSCA`, `CMGW`/`CMSS`, `CNMI`) are done and hardware-proven.
 
 Still queued:
 
@@ -173,15 +178,21 @@ data mode -> AT refused with BUSY -> escape -> hangup. Carrying actual IP
 traffic still needs a host PPP stack (lwIP PPPoS); only that remains
 unproven.
 
-The harness last ran with **no skips**: 162 passed, 0 failed, 0 skipped.
-That figure predates `test_sms_extras()`, which has never been executed
-against the module: the rig was not reachable when the batch was written
-(see "Rig on a different machine" below), so those assertions are unproven
-and the count will change on the next run.
+The harness runs **192 passed, 0 failed, 1 skipped**. The single skip is
+deliberate and permanent: `test_sms_extras()` does not call
+`ec200_sms_send_stored()` against a live index, because CMSS transmits a
+real message. It proves the storage path instead — CMGW writes a draft, it
+is read back, then deleted.
 
-`test_sms_extras()` deliberately does **not** call `ec200_sms_send_stored()`
-against a live index — CMSS transmits a real message. It stores a draft with
-CMGW, reads it back, deletes it, and skips the send.
+The count varies by one or two between runs: a few sub-tests are guarded on
+a conditional (an NTP sync that can time out, an inbox that may be empty),
+and their guards correctly skip the assertion rather than failing. 191-192
+with zero failures is the healthy range.
+
+Note the harness sends **one real SMS per run** when
+`main/test_secrets.h` defines `SMS_DEST`. Re-flashing or resetting the board
+re-runs everything, so avoid rebooting it repeatedly just to re-capture a
+log — each reboot costs a message.
 
 ### Rig on a different machine
 
@@ -191,9 +202,41 @@ checkout lives under `C:\Users\banish\…`. Two consequences:
 - `examples/esp_idf/build/` may be configured for the old path. `idf.py`
   refuses to build and says so; `idf.py fullclean` fixes it.
 - The rig's COM port is not stable across machines. `COM14` in the serial-hub
-  example was a Bluetooth port on the second machine, and the board appeared
-  as an FTDI FT2232 pair instead. Enumerate before assuming:
+  example was a Bluetooth port on the second machine. Enumerate before
+  assuming, and note which ports appear only *after* plugging the board in:
   `Get-CimInstance Win32_PnPEntity | ? { $_.Name -match 'COM\d+' }`
+
+### Two ways in, and only one of them can flash
+
+The board can be reached over either link, and they behave differently:
+
+| Link | Enumerates as | Flash? |
+|---|---|---|
+| Native USB (ESP32-S3 USB-Serial-JTAG) | `VID_303A PID_1002`, a CDC port + JTAG + MSC | **yes** |
+| External FTDI adapter | `VID_0403 PID_6010`, an FT2232 *pair* of COM ports | no |
+
+On the FTDI path only **EN is wired, to RTS** — that is exactly what
+`pulse_reset()` in `tools/serial_hub.py` drives. IO0/BOOT is **not** on DTR,
+so esptool can reset the chip but can never hold it in the ROM downloader:
+it resets, boots the app, and esptool fails with `Invalid head of packet
+(0x20)` — that `0x20` is a space from the application's own log output.
+Diagnose it by pulsing a reset and reading the ROM banner: `boot:0x8
+(SPI_FAST_FLASH_BOOT)` means the strapping never requested download mode.
+
+So **flash over the native USB port**, where esptool enters download mode by
+itself. The FTDI pair is fine as a passive console.
+
+Of the FT2232's two ports, only one is the UART; the other is the JTAG
+channel and stays silent. openocd cannot claim it either while Windows has
+the FTDI VCP driver bound (`LIBUSB_ERROR_NOT_FOUND`) — that needs a Zadig
+rebind to WinUSB, which removes both COM ports until rebound.
+
+**`serial_tail.py --reset` must not be used on the native USB port.** Its
+sequence is FTDI-shaped: it drives DTR low (IO0) while releasing RTS (EN),
+which on USB-Serial-JTAG is a *download-mode request*, not a reboot. The
+board goes silent and looks dead. To reset into the application, hold IO0
+high — pulse RTS only, leaving DTR false — or let esptool do it with
+`--after hard-reset`.
 
 `sms_send` sends one real message per run, so the destination is kept out
 of this repository. The harness first tries the SIM's own number (`AT+CNUM`,

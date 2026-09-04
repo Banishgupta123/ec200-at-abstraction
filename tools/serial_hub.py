@@ -13,8 +13,10 @@ interactive monitor works through the hub:
 Usage:
     python serial_hub.py <com> <baud> <logfile> <tcpport> [--reset]
 
---reset pulses both DTR and RTS (esp-idf-monitor style) so it resets the
-target regardless of which line the adapter wires to EN.
+--reset pulses EN (RTS) only, leaving IO0 (DTR) alone, so the target reboots
+into its application over either link.  Do not "helpfully" drive DTR here:
+on the ESP32-S3's native USB-Serial-JTAG that requests download mode and the
+board goes silent.
 """
 import datetime
 import socket
@@ -33,18 +35,23 @@ ser.port = com
 ser.baudrate = baud
 ser.timeout = 0.2
 
+# Always open with the strapping lines pre-cleared, so the act of opening
+# cannot disturb the target; reset explicitly afterwards if asked.
+ser.dtr = False
+ser.rts = False
+ser.open()
+
 if do_reset:
-    # This adapter resets the target the way idf_monitor does: opening the
-    # port with DTR/RTS asserted (the Windows default), then releasing.
-    ser.open()
+    # EN pulse via RTS *only*.  DTR must stay low the whole time: on the
+    # ESP32-S3's native USB-Serial-JTAG, DTR is IO0, and releasing EN while
+    # IO0 is asserted is a download-mode request rather than a reboot — the
+    # board then sits mute in the ROM loader and looks dead.  Pulsing EN
+    # alone reboots into the application on both links.
+    ser.rts = True
+    ser.dtr = ser.dtr   # Windows latches RTS only on a following DTR write
     time.sleep(0.1)
     ser.rts = False
-    ser.dtr = False
-else:
-    # Attach silently: pre-clear the lines so opening cannot reset.
-    ser.dtr = False
-    ser.rts = False
-    ser.open()
+    ser.dtr = ser.dtr
 
 clients = []
 clients_lock = threading.Lock()

@@ -28,3 +28,7 @@ hw_logs/
 
 # Local test configuration (personal numbers etc.) - never committed.
 test_secrets.h
+
+# Python bytecode from the tools/ scripts
+__pycache__/
+*.pyc
