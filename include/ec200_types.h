@@ -595,6 +595,67 @@ typedef enum {
 } ec200_cfun_t;
 
 /* -------------------------------------------------------------------------
+ * Low-power types (PSM / eDRX)
+ * ------------------------------------------------------------------------- */
+/** Length of a 3GPP 8-bit timer string ("01000011") including the NUL. */
+#define EC200_PSM_TIMER_STR_LEN   (9U)
+
+/** Length of a 3GPP 4-bit eDRX value string ("0101") including the NUL. */
+#define EC200_EDRX_VALUE_STR_LEN  (5U)
+
+/**
+ * @brief Power Saving Mode settings (AT+CPSMS).
+ *
+ * The two timers are 3GPP 24.008 encoded bit strings, not seconds: three
+ * unit bits followed by a five-bit count. Build them with
+ * ec200_psm_encode_tau() / ec200_psm_encode_active_time() rather than by
+ * hand.
+ *
+ * The network is free to grant different values than those requested; read
+ * back what it actually assigned with ec200_psm_get().
+ */
+typedef struct {
+    bool enabled;                             /**< false disables PSM        */
+    /** T3412-extended: how long the module may stay unreachable.           */
+    char periodic_tau[EC200_PSM_TIMER_STR_LEN];
+    /** T3324: how long it stays reachable after a transition to idle.      */
+    char active_time[EC200_PSM_TIMER_STR_LEN];
+} ec200_psm_config_t;
+
+/**
+ * @brief Radio access technology an eDRX setting applies to (AT+CEDRXS).
+ */
+typedef enum {
+    EC200_EDRX_ACT_GSM        = 2,  /**< GSM                                */
+    EC200_EDRX_ACT_UTRAN      = 3,  /**< UTRAN                              */
+    EC200_EDRX_ACT_LTE_CAT_M1 = 4,  /**< E-UTRAN (WB-S1 / LTE Cat-M1)       */
+    EC200_EDRX_ACT_LTE_NB_S1  = 5,  /**< E-UTRAN (NB-S1 / NB-IoT)           */
+} ec200_edrx_act_t;
+
+/**
+ * @brief Extended DRX settings (AT+CEDRXS).
+ */
+typedef struct {
+    bool             enabled;   /**< false disables eDRX                    */
+    ec200_edrx_act_t act_type;  /**< Access technology the value applies to */
+    /** Requested eDRX cycle, a 4-bit string ("0101"); see 3GPP 24.008.     */
+    char             requested[EC200_EDRX_VALUE_STR_LEN];
+} ec200_edrx_config_t;
+
+/**
+ * @brief eDRX parameters actually in force (AT+CEDRXRDP).
+ *
+ * What the network granted, which may differ from what was requested.
+ * @p granted is empty when eDRX is not in use on the current cell.
+ */
+typedef struct {
+    ec200_edrx_act_t act_type;                          /**< Access tech    */
+    char requested[EC200_EDRX_VALUE_STR_LEN];           /**< Asked for      */
+    char granted[EC200_EDRX_VALUE_STR_LEN];             /**< Network's value*/
+    char paging_time_window[EC200_EDRX_VALUE_STR_LEN];  /**< Paging window  */
+} ec200_edrx_dynamic_t;
+
+/* -------------------------------------------------------------------------
  * Main library handle
  * ------------------------------------------------------------------------- */
 /**

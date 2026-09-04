@@ -146,6 +146,24 @@ they are not in the manuals.
   **leaves the stored copy in place** afterwards, now marked `STO SENT`, so
   a harness that stores-and-sends must delete the slot or the storage fills
   up over repeated runs.
+- `AT+CEDRXS?` answers **`+CEDRXS: <mode>,<AcT-type>,"<value>"`** — with a
+  leading `<mode>` that 3GPP 27.007's read form does not show. Reading the
+  AcT-type from field 0 therefore returns the mode, and does it *silently*:
+  both are small integers, so the bug survived a green harness run and was
+  only caught by printing the values. Observed raw replies:
+
+  ```
+  +CPSMS: 0,,,"00100001","00000001"     <- mode, then two empty, then timers
+  +CEDRXS: 0,4,"0101"                    <- mode FIRST, then AcT, then value
+  +CEDRXRDP: 0                           <- AcT 0 alone = eDRX not in use
+  ```
+
+  Lesson recorded because it cost a full flash cycle: a harness assertion
+  that only checks the status code cannot catch a field-offset bug. Assert
+  the parsed **values** for anything with more than one numeric field.
+- `AT+CEDRXS?` keeps reporting the last requested AcT-type and value after
+  eDRX is disabled, so "is it on" must come from `<mode>`, never from
+  whether a value is present.
 - Error payloads: with `AT+CMEE=2` the module *may* answer with text
   instead of a number, so the code is parsed only when the payload is
   entirely numeric and the raw text is always kept
@@ -170,9 +188,14 @@ Batches 1 (TLS: filesystem, SSL contexts, HTTPS, MQTTS, TLS sockets) and
 Batches 1 (TLS), 2 (network diagnostics) and 3 (SMS completeness: `CPMS`,
 `CSCA`, `CMGW`/`CMSS`, `CNMI`) are done and hardware-proven.
 
+Batch 4 (low power: `CPSMS`, `CEDRXS`, `CEDRXRDP`) is written and host-tested
+at 100%. It ran on hardware once at **222 passed, 0 failed, 0 skipped**, but
+that run is what exposed the `+CEDRXS:` field-offset bug — so the *fixed*
+parser and the strengthened value assertions have **not yet been run on the
+module**. See "Picking this back up" below.
+
 Still queued:
 
-- Low power: `CPSMS` (PSM), `CEDRXS` (eDRX)
 - SIM completeness: `CLCK` (facility lock), `CPWD`, PUK unlock
 - Misc: `QADC`, `QTEMP`, `QGPSGNMEA`
 
@@ -197,6 +220,37 @@ otherwise falls back to the SIM's own number so the message loops back to
 the rig instead of reaching anyone. Re-flashing or resetting re-runs
 everything, so each reboot costs two messages: do not reboot the board
 repeatedly just to re-capture a log.
+
+### Picking this back up
+
+Exactly one thing is outstanding: **flash and run the harness to confirm the
+eDRX fix.** Everything else is committed, gated and green.
+
+```sh
+# host gates (all currently clean)
+cmake -S . -B build -G Ninja -DEC200_COVERAGE=ON -DCMAKE_C_COMPILER=gcc
+cmake --build build && ctest --test-dir build
+cmake --build build --target coverage      # 100 / 100 / 100
+
+# hardware
+cd examples/esp_idf && idf.py build && idf.py -p <port> flash
+cd ../.. && python tools/serial_hub.py <port> 115200 hw_logs/15-lowpower.log 2323 --reset
+```
+
+Expect **> 222 passed, 0 failed, 0 skipped** (the fix adds assertions), and
+check these lines specifically — they are the ones that were wrong:
+
+```
+edrx now enabled=1 act=4 requested="0101"     <- act must be 4, NOT 0
+module reports TAU=3600s active=2s
+```
+
+The `RAW CPSMS?` / `RAW CEDRXS?` / `RAW CEDRXRDP` dumps in `test_lowpower()`
+were diagnostics for this bug. They are harmless to keep, but can be deleted
+once the fix is confirmed.
+
+If the flash fails with the port busy, a `serial_hub.py` from an earlier
+session still owns it — stop it first.
 
 ### Rig on a different machine
 

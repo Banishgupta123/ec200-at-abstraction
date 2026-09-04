@@ -707,6 +707,154 @@ static void test_sms_extras(void)
 }
 
 /* ========================================================================= */
+/* Low power: PSM (CPSMS) and eDRX (CEDRXS / CEDRXRDP)                       */
+/* ========================================================================= */
+static void test_lowpower(void)
+{
+    banner("LOW POWER (CPSMS / CEDRXS)");
+
+    /* --- timer encoding: pure, no module traffic ----------------------- */
+    char tau[EC200_PSM_TIMER_STR_LEN];
+    char act[EC200_PSM_TIMER_STR_LEN];
+    ck_st("encode TAU 1 hour",
+          ec200_psm_encode_tau(3600, tau, sizeof(tau)), EC200_OK);
+    ck("TAU 1 hour encodes to 00100001", strcmp(tau, "00100001") == 0);
+    ck_st("encode active time 2 s",
+          ec200_psm_encode_active_time(2, act, sizeof(act)), EC200_OK);
+    ck("active 2 s encodes to 00000001", strcmp(act, "00000001") == 0);
+    ck_st("encode refuses 3660 s",
+          ec200_psm_encode_tau(3660, tau, sizeof(tau)), EC200_ERR_PARAM);
+    /* tau still holds the 1-hour value from above. */
+    ck_st("encode TAU 1 hour (again)",
+          ec200_psm_encode_tau(3600, tau, sizeof(tau)), EC200_OK);
+
+    uint32_t secs = 0;
+    ck_st("decode TAU string",
+          ec200_psm_decode_timer(tau, true, &secs), EC200_OK);
+    ck("TAU decodes back to 3600 s", secs == 3600U);
+    ck_st("decode rejects short string",
+          ec200_psm_decode_timer("0010", true, &secs), EC200_ERR_PARSE);
+
+    /* --- PSM against the module ---------------------------------------- */
+    ec200_psm_config_t psm_before;
+    ck_st("psm_get (initial)", ec200_psm_get(&m, &psm_before), EC200_OK);
+    printf("        psm enabled=%d tau=\"%s\" active=\"%s\"\n",
+           (int)psm_before.enabled, psm_before.periodic_tau,
+           psm_before.active_time);
+
+    ec200_psm_config_t want = { true, "", "" };
+    (void)snprintf(want.periodic_tau, sizeof(want.periodic_tau), "%s", tau);
+    (void)snprintf(want.active_time, sizeof(want.active_time), "%s", act);
+    ck_st("psm_set (1 h TAU, 2 s active)", ec200_psm_set(&m, &want),
+          EC200_OK);
+
+    ec200_psm_config_t psm_after;
+    ck_st("psm_get after set", ec200_psm_get(&m, &psm_after), EC200_OK);
+    printf("        psm now enabled=%d tau=\"%s\" active=\"%s\"\n",
+           (int)psm_after.enabled, psm_after.periodic_tau,
+           psm_after.active_time);
+    ck("psm reports enabled after set", psm_after.enabled);
+    ck("psm TAU round-tripped",
+       strcmp(psm_after.periodic_tau, tau) == 0);
+    ck("psm active time round-tripped",
+       strcmp(psm_after.active_time, act) == 0);
+
+    /* Decode what the module reports back into seconds, so the whole
+     * encode -> module -> read -> decode loop is proven, not just the
+     * string comparison. */
+    uint32_t tau_secs = 0;
+    uint32_t act_secs = 0;
+    ck_st("decode reported TAU",
+          ec200_psm_decode_timer(psm_after.periodic_tau, true, &tau_secs),
+          EC200_OK);
+    ck_st("decode reported active time",
+          ec200_psm_decode_timer(psm_after.active_time, false, &act_secs),
+          EC200_OK);
+    printf("        module reports TAU=%us active=%us\n",
+           (unsigned)tau_secs, (unsigned)act_secs);
+    ck("reported TAU is 3600 s", tau_secs == 3600U);
+    ck("reported active time is 2 s", act_secs == 2U);
+
+    /* Leave PSM off: it would let the module stop answering the UART. */
+    ck_st("psm_disable", ec200_psm_disable(&m), EC200_OK);
+    ck_st("psm_get after disable", ec200_psm_get(&m, &psm_after), EC200_OK);
+    ck("psm reports disabled", !psm_after.enabled);
+
+    ck_st("psm_set NULL", ec200_psm_set(&m, NULL), EC200_ERR_PARAM);
+    ck_st("psm_get NULL", ec200_psm_get(&m, NULL), EC200_ERR_PARAM);
+    ec200_psm_config_t bad = { true, "0010", "00000001" };
+    ck_st("psm_set short timer", ec200_psm_set(&m, &bad), EC200_ERR_PARAM);
+
+    /* Raw replies, so the field layout is read off the module rather than
+     * assumed from the spec. */
+    char raw[128];
+    if (ec200_at_send_wait(&m, "AT+CPSMS?", "+CPSMS:", raw, sizeof(raw),
+                           3000) == EC200_OK) {
+        printf("        RAW CPSMS?   [%s]\n", raw);
+    }
+    if (ec200_at_send_wait(&m, "AT+CEDRXS?", "+CEDRXS:", raw, sizeof(raw),
+                           3000) == EC200_OK) {
+        printf("        RAW CEDRXS?  [%s]\n", raw);
+    }
+    if (ec200_at_send_wait(&m, "AT+CEDRXRDP", "+CEDRXRDP:", raw, sizeof(raw),
+                           3000) == EC200_OK) {
+        printf("        RAW CEDRXRDP [%s]\n", raw);
+    }
+
+    /* --- eDRX against the module --------------------------------------- */
+    ec200_edrx_config_t edrx_before;
+    ck_st("edrx_get (initial)", ec200_edrx_get(&m, &edrx_before), EC200_OK);
+    printf("        edrx enabled=%d act=%d requested=\"%s\"\n",
+           (int)edrx_before.enabled, (int)edrx_before.act_type,
+           edrx_before.requested);
+
+    ec200_edrx_config_t edrx_want = {
+        true, EC200_EDRX_ACT_LTE_CAT_M1, "0101"
+    };
+    ck_st("edrx_set (Cat-M1, 0101)", ec200_edrx_set(&m, &edrx_want),
+          EC200_OK);
+
+    /* Read the settings back and check the VALUES, not just the status.
+     * An earlier version of this test only asserted EC200_OK and happily
+     * passed while the parser was reading the mode as the access
+     * technology — the numbers are all small integers, so a field-offset
+     * bug looks like success unless the values themselves are checked. */
+    ec200_edrx_config_t edrx_after;
+    ck_st("edrx_get after set", ec200_edrx_get(&m, &edrx_after), EC200_OK);
+    printf("        edrx now enabled=%d act=%d requested=\"%s\"\n",
+           (int)edrx_after.enabled, (int)edrx_after.act_type,
+           edrx_after.requested);
+    ck("edrx reports enabled after set", edrx_after.enabled);
+    ck("edrx act-type round-tripped",
+       edrx_after.act_type == EC200_EDRX_ACT_LTE_CAT_M1);
+    ck("edrx requested value round-tripped",
+       strcmp(edrx_after.requested, "0101") == 0);
+
+    ec200_edrx_dynamic_t dyn;
+    ck_st("edrx_get_dynamic", ec200_edrx_get_dynamic(&m, &dyn), EC200_OK);
+    printf("        edrx dynamic act=%d requested=\"%s\" granted=\"%s\" "
+           "ptw=\"%s\"\n",
+           (int)dyn.act_type, dyn.requested, dyn.granted,
+           dyn.paging_time_window);
+
+    ck_st("edrx_disable", ec200_edrx_disable(&m, EC200_EDRX_ACT_LTE_CAT_M1),
+          EC200_OK);
+    ck_st("edrx_get after disable", ec200_edrx_get(&m, &edrx_after),
+          EC200_OK);
+    ck("edrx reports disabled", !edrx_after.enabled);
+
+    ck_st("edrx_set NULL", ec200_edrx_set(&m, NULL), EC200_ERR_PARAM);
+    ck_st("edrx_get NULL", ec200_edrx_get(&m, NULL), EC200_ERR_PARAM);
+    ck_st("edrx_get_dynamic NULL", ec200_edrx_get_dynamic(&m, NULL),
+          EC200_ERR_PARAM);
+    ck_st("edrx_disable bad act",
+          ec200_edrx_disable(&m, (ec200_edrx_act_t)9), EC200_ERR_PARAM);
+    ec200_edrx_config_t edrx_bad = { true, EC200_EDRX_ACT_GSM, "01" };
+    ck_st("edrx_set short value", ec200_edrx_set(&m, &edrx_bad),
+          EC200_ERR_PARAM);
+}
+
+/* ========================================================================= */
 /* GNSS (no antenna: control-plane only)                                     */
 /* ========================================================================= */
 static void test_gnss(void)
@@ -1267,6 +1415,7 @@ static void run_all(void *arg)
     test_mqtt();
     test_sms();
     test_sms_extras();
+    test_lowpower();
     settle();
     test_clock();
     test_gnss();
