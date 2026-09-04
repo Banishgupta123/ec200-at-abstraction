@@ -5,6 +5,16 @@
  * The secure counterpart of ec200_tcpip.h.  Configure an SSL context with
  * ec200_ssl_configure() first, then open a TLS connection that references
  * both a PDP context and that SSL context.
+ *
+ * @warning **`conn_id` shares one id space with ec200_tcpip.h.**  The module
+ *          keeps a single table of connections, so a TLS socket and a plain
+ *          TCP socket cannot both use id 3.  The library does not allocate or
+ *          track ids for you — pick them so the two modules never collide.
+ *
+ * @warning If ec200_ssl_socket_open() fails (for example a rejected
+ *          certificate), the module may keep @p conn_id allocated.  Call
+ *          ec200_ssl_socket_close() on that id before retrying, or the retry
+ *          will fail because the socket is still in use.
  */
 
 #ifndef EC200_SSL_SOCKET_H

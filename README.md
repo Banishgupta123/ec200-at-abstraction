@@ -205,7 +205,7 @@ ec200_at_poll_urc(&modem, 0);
 | `ec200_gnss.h` | QGPS start/stop/status, QGPSLOC, QGPSCFG NMEA types |
 | `ec200_power.h` | CFUN get/set/reset, QPOWD, QSCLK |
 | `ec200_ppp.h` | PPP dial-up control plane: dial, escape (+++), resume, hangup |
-| `ec200_file.h` | Modem UFS: upload/delete/list/size/storage (cert storage) |
+| `ec200_file.h` | Modem UFS: upload/delete/exists/size/storage (cert storage) |
 | `ec200_ssl.h` | TLS context config (QSSLCFG): version, cipher, seclevel, certs |
 | `ec200_ssl_socket.h` | TLS client sockets (QSSLOPEN/SEND/RECV/CLOSE) |
 | `ec200_time.h` | Module clock, network time (QLTS/CTZU), NTP sync (QNTP) |
@@ -321,7 +321,7 @@ library is pure C99 with no IDF API usage). Add it to your project's
 dependencies:
   ec200-at-abstraction:
     git: "https://github.com/Banishgupta123/ec200-at-abstraction.git"
-    version: "v1.1.0"
+    version: "v2.0.0"
 ```
 
 The IDF Component Manager fetches it on the next `idf.py build`; then just

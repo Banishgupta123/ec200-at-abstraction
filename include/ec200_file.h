@@ -30,7 +30,8 @@ extern "C" {
  * @param h        Initialised handle.
  * @param name     Destination filename (e.g. "cacert.pem").
  * @param data     File contents.
- * @param len      Number of bytes (1..131072).
+ * @param len      Number of bytes (1..65535).  The upper bound is the size of
+ *                 a single raw write, which is a uint16_t.
  * @param checksum Optional: receives the module's uploaded-data checksum
  *                 (may be NULL).
  *

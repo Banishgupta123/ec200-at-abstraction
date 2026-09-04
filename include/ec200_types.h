@@ -462,7 +462,11 @@ typedef struct {
  * File system types
  * ------------------------------------------------------------------------- */
 /**
- * @brief One entry returned by ec200_file_list() (AT+QFLST).
+ * @brief A modem UFS directory entry: file name and size.
+ *
+ * @note Reserved for a future directory-listing API.  No function in this
+ *       library currently produces or consumes this type — use
+ *       ec200_file_exists() and ec200_file_size() to query a known filename.
  */
 typedef struct {
     char     name[EC200_MAX_FILENAME_LEN]; /**< File name                 */

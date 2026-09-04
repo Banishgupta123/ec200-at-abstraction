@@ -63,6 +63,14 @@ ec200_status_t ec200_sms_read(ec200_handle_t    *h,
  * @param stat       Filter: which message status to list.
  * @param msgs       Caller-allocated array to receive the messages.
  * @param max_msgs   Capacity of @p msgs array (maximum messages to retrieve).
+ *
+ * @warning The number actually returned is also capped by the size of the
+ *          internal response buffer, ::EC200_SMS_LIST_BUF_LEN (1024 bytes by
+ *          default, roughly four messages).  Response lines that do not fit
+ *          are dropped by the AT layer and this function still returns
+ *          EC200_OK with a short @p count_out, so a short count does not mean
+ *          the mailbox is short.  Raise ::EC200_SMS_LIST_BUF_LEN at compile
+ *          time if you need to list more messages in one call.
  * @param count_out  Output: number of messages actually stored in @p msgs.
  *
  * @return EC200_OK or an error code.

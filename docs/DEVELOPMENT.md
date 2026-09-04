@@ -182,29 +182,35 @@ binary payloads (including `0x1A`) transit intact.
 
 ## State and remaining work
 
-Batches 1 (TLS: filesystem, SSL contexts, HTTPS, MQTTS, TLS sockets) and
-2 (QNWINFO/QSPN/CGATT, DNS, ping, clock/NTP) are done and hardware-proven.
+Batches 1 (TLS: filesystem, SSL contexts, HTTPS, MQTTS, TLS sockets),
+2 (QNWINFO/QSPN/CGATT, DNS, ping, clock/NTP), 3 (SMS completeness: `CPMS`,
+`CSCA`, `CMGW`/`CMSS`, `CNMI`) and 4 (low power: `CPSMS`, `CEDRXS`,
+`CEDRXRDP`) are done and hardware-proven. Released as **v2.0.0** on
+2026-09-05.
 
-Batches 1 (TLS), 2 (network diagnostics) and 3 (SMS completeness: `CPMS`,
-`CSCA`, `CMGW`/`CMSS`, `CNMI`) are done and hardware-proven.
+The batch-4 `+CEDRXS:` field-offset fix was confirmed on the module on
+2026-09-05 (`hw_logs/15-lowpower.log`): `edrx now enabled=1 act=4
+requested="0101"`, **227 passed, 0 failed, 2 skipped** — the two skips were
+the SMS sends, deliberately masked for that run.
 
-Batch 4 (low power: `CPSMS`, `CEDRXS`, `CEDRXRDP`) is written and host-tested
-at 100%. It ran on hardware once at **222 passed, 0 failed, 0 skipped**, but
-that run is what exposed the `+CEDRXS:` field-offset bug — so the *fixed*
-parser and the strengthened value assertions have **not yet been run on the
-module**. See "Picking this back up" below.
+**Everything still open is in [`TECH_DEBT.md`](../TECH_DEBT.md)** — the
+ranked defect list from the 2026-09-05 ten-angle review (six silent
+wrong-answer bugs at the top, then timeout policy, robustness, engine,
+gates, duplication), the queued feature batches, and the unverified
+questions. Work from that file; keep it current.
 
-Still queued:
+Still queued (also in TECH_DEBT.md §G):
 
 - SIM completeness: `CLCK` (facility lock), `CPWD`, PUK unlock
 - Misc: `QADC`, `QTEMP`, `QGPSGNMEA`
 
-The PPP control plane is now exercised on hardware end to end: dial ->
+The PPP control plane is exercised on hardware end to end: dial ->
 data mode -> AT refused with BUSY -> escape -> hangup. Carrying actual IP
 traffic still needs a host PPP stack (lwIP PPPoS); only that remains
 unproven.
 
-The harness runs with **no skips**: 195 passed, 0 failed, 0 skipped.
+The harness runs with **no skips** when `SMS_DEST` is set: 227+ passed,
+0 failed, 0 skipped.
 
 The count can vary by one or two between runs: a few sub-tests are guarded
 on a precondition (an NTP sync that can time out, an inbox that may be
@@ -223,34 +229,38 @@ repeatedly just to re-capture a log.
 
 ### Picking this back up
 
-Exactly one thing is outstanding: **flash and run the harness to confirm the
-eDRX fix.** Everything else is committed, gated and green.
+Nothing is half-finished. Start from `TECH_DEBT.md`; item **A1** (the
+`AT+QLTS` four-digit year, a one-line fix) is the recommended first task.
 
 ```sh
-# host gates (all currently clean)
+# host gates
 cmake -S . -B build -G Ninja -DEC200_COVERAGE=ON -DCMAKE_C_COMPILER=gcc
 cmake --build build && ctest --test-dir build
 cmake --build build --target coverage      # 100 / 100 / 100
 
 # hardware
 cd examples/esp_idf && idf.py build && idf.py -p <port> flash
-cd ../.. && python tools/serial_hub.py <port> 115200 hw_logs/15-lowpower.log 2323 --reset
+cd ../.. && python tools/serial_hub.py <port> 115200 hw_logs/<nn>-<name>.log 2323 --reset
 ```
 
-Expect **> 222 passed, 0 failed, 0 skipped** (the fix adds assertions), and
-check these lines specifically — they are the ones that were wrong:
+Expect **0 failed**. Skips are precondition guards; read the reason.
 
-```
-edrx now enabled=1 act=4 requested="0101"     <- act must be 4, NOT 0
-module reports TAU=3600s active=2s
-```
+To run the harness **without sending SMS**, rename
+`examples/esp_idf/main/test_secrets.h` aside for the run and restore it
+afterwards — `sms_dest()` then resolves to nothing (this SIM provisions
+neither `CNUM` nor the `"ON"` phonebook) and both send tests skip.
 
-The `RAW CPSMS?` / `RAW CEDRXS?` / `RAW CEDRXRDP` dumps in `test_lowpower()`
-were diagnostics for this bug. They are harmless to keep, but can be deleted
-once the fix is confirmed.
+Things that bit on 2026-09-05 when resuming on a different machine:
 
-If the flash fails with the port busy, a `serial_hub.py` from an earlier
-session still owns it — stop it first.
+- `examples/esp_idf/build/` was configured for the other machine's path and
+  `idf.py fullclean` failed with `PermissionError` on a OneDrive-locked
+  directory. Delete `build/` directly (`Remove-Item -Recurse -Force`) and
+  rebuild.
+- If the flash fails with the port busy, a `serial_hub.py` from an earlier
+  session still owns it — stop it first.
+- The `RAW CPSMS?` / `RAW CEDRXS?` / `RAW CEDRXRDP` dumps in `test_lowpower()`
+  were diagnostics for the eDRX bug and are now safe to delete
+  (TECH_DEBT.md E5).
 
 ### Rig on a different machine
 

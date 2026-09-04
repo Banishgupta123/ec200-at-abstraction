@@ -66,8 +66,23 @@ ec200_status_t ec200_data_get_ip(ec200_handle_t *h,
 /**
  * @brief Convenience helper: configure, activate and retrieve IP in one call.
  *
- * Calls ec200_data_set_pdp(), ec200_data_activate(), and ec200_data_get_ip()
- * in sequence.  On success @p ctx->ip_addr is populated.
+ * Probes ec200_data_get_ip() first.  If the context already holds an address
+ * other than "0.0.0.0" it is considered up and the function returns
+ * immediately; otherwise it calls ec200_data_set_pdp(), ec200_data_activate()
+ * and ec200_data_get_ip() in sequence.  On success @p ctx->ip_addr is
+ * populated.
+ *
+ * @warning The early return exists because on LTE the attach bearer for cid 1
+ *          is typically already active before any AT+CGDCONT is issued, and
+ *          re-defining a live context fails.  The consequence is that when the
+ *          context is already up, @p ctx->apn, @p ctx->type and the PAP/CHAP
+ *          credentials are **not** applied — the session runs on whatever APN
+ *          the context already has.  If you require a specific APN, call
+ *          ec200_data_deactivate() first, or use ec200_data_set_pdp() and
+ *          ec200_data_activate() directly instead of this helper.
+ *
+ * @note The "already up" test compares against the IPv4 zero address only, so
+ *       an inactive IPv6 or IPv4v6 context may not be recognised as down.
  *
  * @param h    Initialised library handle.
  * @param ctx  PDP context parameters (ip_addr field is written on success).

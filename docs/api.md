@@ -290,7 +290,23 @@ ec200_status_t ec200_data_connect(ec200_handle_t *h, ec200_pdp_context_t *ctx);
 
 When `ctx->username` is non-empty, `set_pdp` also issues
 `AT+QICSGP` with PAP/CHAP authentication so the credentials take effect.
-`data_connect` = set_pdp → activate → get_ip (result in `ctx->ip_addr`).
+
+`data_connect` = get_ip → (if the context is already up, return) → set_pdp →
+activate → get_ip. The result lands in `ctx->ip_addr`.
+
+The initial probe exists because on LTE the attach bearer for cid 1 is
+usually active before any `AT+CGDCONT` is issued, and re-defining a live
+context fails on the module.
+
+> **`data_connect` does not apply your APN to an already-active context.**
+> If the first `get_ip` returns an address other than `0.0.0.0`, the helper
+> returns `EC200_OK` without sending `AT+CGDCONT`, so `ctx->apn`, `ctx->type`
+> and any PAP/CHAP credentials are ignored and the session runs on the APN
+> the context already had. To force a specific APN, call `data_deactivate`
+> first, or drive `set_pdp` → `activate` yourself.
+>
+> The "already up" test compares against the IPv4 zero address only, so an
+> inactive IPv6 or IPv4v6 context may not be detected as down.
 
 ## TCP/IP
 

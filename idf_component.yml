@@ -1,8 +1,10 @@
-version: "1.1.0"
+version: "2.0.0"
 description: >
   Platform-independent C99 AT-command abstraction for Quectel EC200U cellular
-  modules: SIM, network, SMS, TCP/UDP, HTTP, MQTT, GNSS, and power management
-  over three user-supplied UART callbacks. No RTOS or SoC dependencies.
+  modules: SIM, network, SMS, TCP/UDP, HTTP/HTTPS, MQTT/MQTTS, TLS sockets,
+  certificate storage, DNS/ping/NTP, GNSS, PPP control, PSM/eDRX and power
+  management over three user-supplied UART callbacks. No RTOS or SoC
+  dependencies.
 url: "https://github.com/Banishgupta123/ec200-at-abstraction"
 repository: "https://github.com/Banishgupta123/ec200-at-abstraction.git"
 issues: "https://github.com/Banishgupta123/ec200-at-abstraction/issues"
