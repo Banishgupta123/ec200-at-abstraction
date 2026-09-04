@@ -158,6 +158,24 @@ body[body_len] = '\0';
 ec200_sms_set_format(&modem, EC200_SMS_FORMAT_TEXT);
 ec200_sms_send(&modem, "+1234567890", "Hello!");
 
+/* Receive SMS: ask for an index URC, then fetch each message it names */
+static void on_new_sms(const char *urc, void *ctx)
+{
+    ec200_sms_notification_t note;
+    if (ec200_sms_parse_notification(urc, &note) != EC200_OK) {
+        return;
+    }
+    ec200_sms_message_t msg;
+    if (ec200_sms_read((ec200_handle_t *)ctx, note.index, &msg) == EC200_OK) {
+        printf("SMS from %s: %s\n", msg.sender, msg.text);
+    }
+}
+
+const ec200_sms_cnmi_t cnmi = { 2, 1, 0, 0, 0 };
+ec200_sms_set_indication(&modem, &cnmi);
+ec200_at_register_urc(&modem, "+CMTI:", on_new_sms, &modem);
+/* ec200_at_poll_urc() below now delivers +CMTI to on_new_sms */
+
 /* MQTT publish (binary-safe: uses AT+QMTPUBEX) */
 ec200_mqtt_publish(&modem, 0, 1, EC200_MQTT_QOS1, false,
                    "sensors/t1", payload, payload_len);
@@ -179,7 +197,7 @@ ec200_at_poll_urc(&modem, 0);
 | `ec200.h` | Init, IMEI, firmware, echo, CMEE, status strings |
 | `ec200_sim.h` | PIN status, enter PIN, IMSI, ICCID |
 | `ec200_network.h` | CREG/CGREG/CEREG, CSQ/QCSQ, COPS, QNWINFO, QSPN, CGATT, wait-for-register |
-| `ec200_sms.h` | Set format, send, read, list, delete |
+| `ec200_sms.h` | Set format, send, read, list, delete, storage (CPMS), service centre (CSCA), store/send-stored (CMGW/CMSS), new-message indication (CNMI) |
 | `ec200_data.h` | CGDCONT, QICSGP auth, CGACT, CGPADDR, connect helper |
 | `ec200_tcpip.h` | QIOPEN, QISEND, QIRD, QICLOSE, QISTATE, DNS (QIDNSGIP), ping (QPING) |
 | `ec200_http.h` | QHTTPCFG, QHTTPURL, QHTTPGET, QHTTPPOST, QHTTPREAD |

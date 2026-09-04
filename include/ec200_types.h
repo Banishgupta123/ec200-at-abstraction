@@ -302,6 +302,58 @@ typedef struct {
     char     text[EC200_MAX_SMS_TEXT_LEN + 1];   /**< Message body (NUL-term.)    */
 } ec200_sms_message_t;
 
+/**
+ * @brief SMS message storage area (AT+CPMS).
+ *
+ * The string sent on the wire is the standard 3GPP mnemonic; ::EC200_SMS_MEM_MT
+ * ("ME and SM combined") is valid for the read/delete and receive slots only.
+ */
+typedef enum {
+    EC200_SMS_MEM_SM = 0,   /**< SIM card storage                             */
+    EC200_SMS_MEM_ME = 1,   /**< Module (phone) storage                       */
+    EC200_SMS_MEM_MT = 2,   /**< ME and SM combined                           */
+} ec200_sms_mem_t;
+
+/**
+ * @brief Occupancy of one storage area, as reported by AT+CPMS.
+ */
+typedef struct {
+    uint16_t used;   /**< Messages currently stored     */
+    uint16_t total;  /**< Capacity of the storage area  */
+} ec200_sms_mem_usage_t;
+
+/**
+ * @brief Occupancy of all three AT+CPMS storage slots.
+ */
+typedef struct {
+    ec200_sms_mem_usage_t read_delete;  /**< mem1: read / delete source      */
+    ec200_sms_mem_usage_t write_send;   /**< mem2: write / send source       */
+    ec200_sms_mem_usage_t receive;      /**< mem3: where new messages land   */
+} ec200_sms_storage_t;
+
+/**
+ * @brief New-message indication settings (AT+CNMI).
+ *
+ * Field meanings are the 3GPP 27.005 ones.  The combination that delivers an
+ * index URC (`+CMTI:`) for every arriving message, with no buffering, is
+ * `{ .mode = 2, .mt = 1, .bm = 0, .ds = 0, .bfr = 0 }`.
+ */
+typedef struct {
+    uint8_t mode;  /**< URC buffering policy      (0-2)                      */
+    uint8_t mt;    /**< Routing of received SMS   (0-3)                      */
+    uint8_t bm;    /**< Cell-broadcast routing    (0-3)                      */
+    uint8_t ds;    /**< Status-report routing     (0-2)                      */
+    uint8_t bfr;   /**< Flush or discard the buffer on mode change (0-1)     */
+} ec200_sms_cnmi_t;
+
+/**
+ * @brief A parsed `+CMTI:` new-message notification.
+ */
+typedef struct {
+    ec200_sms_mem_t mem;    /**< Storage the message landed in                */
+    int             index;  /**< 1-based index within that storage            */
+} ec200_sms_notification_t;
+
 /* -------------------------------------------------------------------------
  * PDP / Data context types
  * ------------------------------------------------------------------------- */

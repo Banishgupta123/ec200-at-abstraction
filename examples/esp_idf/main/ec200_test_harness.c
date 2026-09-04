@@ -559,6 +559,117 @@ static void test_sms(void)
 }
 
 /* ========================================================================= */
+/* SMS storage, service centre, stored messages, new-message indication      */
+/* ========================================================================= */
+static void test_sms_extras(void)
+{
+    banner("SMS EXTRAS (CPMS / CSCA / CMGW / CMSS / CNMI)");
+
+    /* --- storage selection (CPMS) ------------------------------------- */
+    ec200_sms_storage_t usage;
+    ck_st("sms_get_storage", ec200_sms_get_storage(&m, &usage), EC200_OK);
+    printf("        read/del %u/%u  write/send %u/%u  recv %u/%u\n",
+           usage.read_delete.used, usage.read_delete.total,
+           usage.write_send.used,  usage.write_send.total,
+           usage.receive.used,     usage.receive.total);
+    ck("storage totals are non-zero", usage.read_delete.total > 0);
+
+    ec200_sms_storage_t after_set;
+    ck_st("sms_set_storage ME/ME/ME",
+          ec200_sms_set_storage(&m, EC200_SMS_MEM_ME, EC200_SMS_MEM_ME,
+                                EC200_SMS_MEM_ME, &after_set), EC200_OK);
+    ck_st("sms_set_storage discard usage",
+          ec200_sms_set_storage(&m, EC200_SMS_MEM_ME, EC200_SMS_MEM_ME,
+                                EC200_SMS_MEM_ME, NULL), EC200_OK);
+    ck_st("set_storage rejects MT as write store",
+          ec200_sms_set_storage(&m, EC200_SMS_MEM_ME, EC200_SMS_MEM_MT,
+                                EC200_SMS_MEM_ME, NULL), EC200_ERR_PARAM);
+    ck_st("get_storage NULL", ec200_sms_get_storage(&m, NULL),
+          EC200_ERR_PARAM);
+
+    /* --- service centre (CSCA) ---------------------------------------- */
+    char smsc[EC200_MAX_PHONE_NUM_LEN] = {0};
+    ck_st("sms_get_smsc", ec200_sms_get_smsc(&m, smsc, sizeof(smsc)),
+          EC200_OK);
+    ck("smsc is non-empty", smsc[0] != '\0');
+    /* Do not print the SMSC: it identifies the carrier account. */
+
+    if (smsc[0] != '\0') {
+        /* Writing back the value just read changes nothing observable. */
+        ck_st("sms_set_smsc round-trip", ec200_sms_set_smsc(&m, smsc),
+              EC200_OK);
+    } else {
+        skip("sms_set_smsc", "no SMSC provisioned to write back");
+    }
+    ck_st("set_smsc NULL", ec200_sms_set_smsc(&m, NULL), EC200_ERR_PARAM);
+    ck_st("set_smsc empty", ec200_sms_set_smsc(&m, ""), EC200_ERR_PARAM);
+    ck_st("get_smsc NULL", ec200_sms_get_smsc(&m, NULL, sizeof(smsc)),
+          EC200_ERR_PARAM);
+
+    /* --- write to storage, then delete it again (CMGW) ----------------- */
+    /* CMGW only stores; nothing is transmitted and nobody is messaged. */
+    int stored_index = -1;
+    ec200_status_t wst = ec200_sms_write(&m, "+10000000000",
+                                         "EC200 harness stored draft",
+                                         &stored_index);
+    ck_st("sms_write (stored, not sent)", wst, EC200_OK);
+    if (wst == EC200_OK) {
+        printf("        stored at index=%d\n", stored_index);
+        ck("sms_write reported an index", stored_index >= 0);
+
+        if (stored_index >= 0) {
+            ec200_sms_message_t drafted;
+            ck_st("read back the stored draft",
+                  ec200_sms_read(&m, stored_index, &drafted), EC200_OK);
+            ck_st("delete the stored draft",
+                  ec200_sms_delete(&m, stored_index), EC200_OK);
+        }
+        /* CMSS is intentionally NOT exercised against a live index: it
+         * would transmit a real message to the stored destination. */
+        skip("sms_send_stored", "CMSS would transmit a real message");
+    } else {
+        skip("stored-draft read/delete", "sms_write failed");
+        skip("sms_send_stored", "sms_write failed");
+    }
+    ck_st("write rejects Ctrl-Z",
+          ec200_sms_write(&m, "+10000000000", "a\x1a" "b", NULL),
+          EC200_ERR_PARAM);
+    ck_st("send_stored bad index", ec200_sms_send_stored(&m, -1, NULL),
+          EC200_ERR_PARAM);
+
+    /* --- new-message indication (CNMI) --------------------------------- */
+    const ec200_sms_cnmi_t want = { 2, 1, 0, 0, 0 };
+    ck_st("sms_set_indication 2,1,0,0,0",
+          ec200_sms_set_indication(&m, &want), EC200_OK);
+
+    ec200_sms_cnmi_t got;
+    ck_st("sms_get_indication", ec200_sms_get_indication(&m, &got), EC200_OK);
+    printf("        cnmi=%u,%u,%u,%u,%u\n",
+           got.mode, got.mt, got.bm, got.ds, got.bfr);
+    ck("cnmi mode round-tripped", got.mode == want.mode);
+    ck("cnmi mt round-tripped",   got.mt   == want.mt);
+
+    ck_st("set_indication NULL", ec200_sms_set_indication(&m, NULL),
+          EC200_ERR_PARAM);
+    const ec200_sms_cnmi_t bad = { 9, 1, 0, 0, 0 };
+    ck_st("set_indication out of range",
+          ec200_sms_set_indication(&m, &bad), EC200_ERR_PARAM);
+    ck_st("get_indication NULL", ec200_sms_get_indication(&m, NULL),
+          EC200_ERR_PARAM);
+
+    /* --- +CMTI parsing (pure, no module traffic) ----------------------- */
+    ec200_sms_notification_t note;
+    ck_st("parse +CMTI",
+          ec200_sms_parse_notification("+CMTI: \"ME\",3", &note), EC200_OK);
+    ck("parsed CMTI index", note.index == 3);
+    ck("parsed CMTI storage", note.mem == EC200_SMS_MEM_ME);
+    ck_st("parse non-CMTI line",
+          ec200_sms_parse_notification("+CMGS: 3", &note), EC200_ERR_PARSE);
+    ck_st("parse CMTI NULL",
+          ec200_sms_parse_notification(NULL, &note), EC200_ERR_PARAM);
+}
+
+/* ========================================================================= */
 /* GNSS (no antenna: control-plane only)                                     */
 /* ========================================================================= */
 static void test_gnss(void)
@@ -1118,6 +1229,7 @@ static void run_all(void *arg)
     settle();
     test_mqtt();
     test_sms();
+    test_sms_extras();
     settle();
     test_clock();
     test_gnss();

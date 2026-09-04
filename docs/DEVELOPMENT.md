@@ -39,10 +39,29 @@ Two gates exist because a bug got through the normal ones:
   `-Wformat-truncation=2`, `-Wcast-qual`, …) at `-O2`. This is what caught
   the stack regression; the normal build did not.
 
-Note: clang-tidy is most useful on Linux. On Windows/MinGW clang may fail
-to parse the platform's own `stdlib.h`; that is environmental, not a
-finding. If every file reports "file not found", pass GCC's own include
-paths via `-isystem` or the analyzer silently never runs.
+Note: clang-tidy is most useful on Linux. It also runs clean under MSYS2
+when clang-tidy and GCC come from the same `mingw-w64-x86_64-*` packages —
+the earlier "cannot parse the platform's own `stdlib.h`" failure came from
+mixing a system clang with a different GCC's headers. If every file reports
+"file not found", pass GCC's own include paths via `-isystem`, or the
+analyzer silently never runs.
+
+### Toolchain on a fresh Windows box
+
+There is no host compiler by default. What the gates need:
+
+```sh
+winget install --id MSYS2.MSYS2 -e
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja \
+          mingw-w64-x86_64-cppcheck mingw-w64-x86_64-clang-tools-extra \
+          mingw-w64-x86_64-python-lxml ruby doxygen
+/mingw64/bin/python -m pip install --break-system-packages gcovr
+```
+
+Then put `/c/msys64/mingw64/bin` and `/c/msys64/usr/bin` on PATH (the
+second one carries Ruby, without which the CMock suite silently drops out
+and only 5 of the 6 ctest suites run). `gcovr` has no MinGW package and its
+`lxml` dependency will not build from source, hence the pacman line for it.
 
 ## Hardware test rig
 
@@ -139,9 +158,12 @@ binary payloads (including `0x1A`) transit intact.
 Batches 1 (TLS: filesystem, SSL contexts, HTTPS, MQTTS, TLS sockets) and
 2 (QNWINFO/QSPN/CGATT, DNS, ping, clock/NTP) are done and hardware-proven.
 
+Batch 3 (SMS completeness: `CPMS`, `CSCA`, `CMGW`/`CMSS`, `CNMI`) is written
+and host-tested at 100% line/function/branch, **but not yet hardware-proven**
+— see the note at the end of this section.
+
 Still queued:
 
-- SMS completeness: `CNMI` (incoming-SMS URC), `CPMS`, `CSCA`, `CMGW`/`CMSS`
 - Low power: `CPSMS` (PSM), `CEDRXS` (eDRX)
 - SIM completeness: `CLCK` (facility lock), `CPWD`, PUK unlock
 - Misc: `QADC`, `QTEMP`, `QGPSGNMEA`
@@ -151,7 +173,27 @@ data mode -> AT refused with BUSY -> escape -> hangup. Carrying actual IP
 traffic still needs a host PPP stack (lwIP PPPoS); only that remains
 unproven.
 
-The harness runs with **no skips**: 162 passed, 0 failed, 0 skipped.
+The harness last ran with **no skips**: 162 passed, 0 failed, 0 skipped.
+That figure predates `test_sms_extras()`, which has never been executed
+against the module: the rig was not reachable when the batch was written
+(see "Rig on a different machine" below), so those assertions are unproven
+and the count will change on the next run.
+
+`test_sms_extras()` deliberately does **not** call `ec200_sms_send_stored()`
+against a live index — CMSS transmits a real message. It stores a draft with
+CMGW, reads it back, deletes it, and skips the send.
+
+### Rig on a different machine
+
+The transcript in `.session/` was recorded under `C:\Users\banis\…`; this
+checkout lives under `C:\Users\banish\…`. Two consequences:
+
+- `examples/esp_idf/build/` may be configured for the old path. `idf.py`
+  refuses to build and says so; `idf.py fullclean` fixes it.
+- The rig's COM port is not stable across machines. `COM14` in the serial-hub
+  example was a Bluetooth port on the second machine, and the board appeared
+  as an FTDI FT2232 pair instead. Enumerate before assuming:
+  `Get-CimInstance Win32_PnPEntity | ? { $_.Name -match 'COM\d+' }`
 
 `sms_send` sends one real message per run, so the destination is kept out
 of this repository. The harness first tries the SIM's own number (`AT+CNUM`,
