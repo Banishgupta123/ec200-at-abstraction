@@ -31,6 +31,12 @@ ec200_status_t ec200_tcp_open(ec200_handle_t    *h,
     if (!host || host[0] == '\0' || conn_id >= EC200_MAX_CONNECTIONS) {
         return EC200_ERR_PARAM;
     }
+
+    /* Reject over-long names: they would silently truncate into a
+     * malformed AT command. */
+    if (strlen(host) >= EC200_MAX_URL_LEN) {
+        return EC200_ERR_PARAM;
+    }
     if (ctx_id < 1U || ctx_id > 16U) {
         return EC200_ERR_PARAM;
     }
@@ -233,4 +239,134 @@ ec200_status_t ec200_tcp_bytes_available(ec200_handle_t *h,
     }
     *bytes_avail = (uint32_t)unread;
     return EC200_OK;
+}
+
+ec200_status_t ec200_tcp_dns_resolve(ec200_handle_t *h,
+                                     uint8_t         pdp_ctx,
+                                     const char     *host,
+                                     char           *ip,
+                                     size_t          ip_sz,
+                                     uint32_t        timeout_ms)
+{
+    if (!host || host[0] == '\0' || !ip || ip_sz == 0U ||
+        pdp_ctx < 1U || pdp_ctx > 16U) {
+        return EC200_ERR_PARAM;
+    }
+
+    /* Reject over-long names: they would silently truncate into a
+     * malformed AT command. */
+    if (strlen(host) >= EC200_MAX_URL_LEN) {
+        return EC200_ERR_PARAM;
+    }
+
+    char cmd[EC200_MAX_URL_LEN + 32];
+    (void)snprintf(cmd, sizeof(cmd), "AT+QIDNSGIP=%u,\"%s\"",
+                   (unsigned)pdp_ctx, host);
+
+    /* "OK", then "+QIURC: \"dnsgip\",<err>,<count>,<ttl>" followed by one
+     * "+QIURC: \"dnsgip\",\"<addr>\"" line per resolved address. */
+    char resp[128];
+    ec200_status_t st = ec200_at_send_await_urc(h, cmd, "+QIURC: \"dnsgip\"",
+                                                resp, sizeof(resp),
+                                                EC200_AT_TIMEOUT_DEFAULT,
+                                                timeout_ms);
+    if (st != EC200_OK) {
+        return st;
+    }
+
+    int err = 0;
+    if (ec200_at_parse_int_field(resp, 1U, &err) == EC200_OK && err != 0) {
+        return EC200_ERR_MODULE;
+    }
+
+    /* Next dnsgip line carries the address in quotes. */
+    st = ec200_at_wait_prefix(h, "+QIURC: \"dnsgip\"", resp, sizeof(resp),
+                              timeout_ms);
+    if (st != EC200_OK) {
+        return st;
+    }
+    const char *q = strchr(resp, ',');
+    if (q == NULL) {
+        return EC200_ERR_PARSE;
+    }
+    q = strchr(q, '"');
+    if (q == NULL) {
+        return EC200_ERR_PARSE;
+    }
+    const char *e = strchr(q + 1, '"');
+    if (e == NULL) {
+        return EC200_ERR_PARSE;
+    }
+    size_t len = (size_t)(e - q - 1);
+    if (len >= ip_sz) {
+        len = ip_sz - 1U;
+    }
+    memcpy(ip, q + 1, len);
+    ip[len] = '\0';
+    return EC200_OK;
+}
+
+ec200_status_t ec200_tcp_ping(ec200_handle_t      *h,
+                              uint8_t              pdp_ctx,
+                              const char          *host,
+                              uint8_t              count,
+                              ec200_ping_result_t *res,
+                              uint32_t             timeout_ms)
+{
+    if (!host || host[0] == '\0' || !res ||
+        pdp_ctx < 1U || pdp_ctx > 16U || count == 0U || count > 10U) {
+        return EC200_ERR_PARAM;
+    }
+
+    /* Reject over-long names: they would silently truncate into a
+     * malformed AT command. */
+    if (strlen(host) >= EC200_MAX_URL_LEN) {
+        return EC200_ERR_PARAM;
+    }
+    memset(res, 0, sizeof(*res));
+
+    char cmd[EC200_MAX_URL_LEN + 48];
+    (void)snprintf(cmd, sizeof(cmd), "AT+QPING=%u,\"%s\",4,%u",
+                   (unsigned)pdp_ctx, host, (unsigned)count);
+
+    /* "OK", then one +QPING line per reply, then a final summary line:
+     * +QPING: <err>,<sent>,<rcvd>,<lost>,<min>,<max>,<avg> */
+    char resp[128];
+    ec200_status_t st = ec200_at_send_await_urc(h, cmd, "+QPING:",
+                                                resp, sizeof(resp),
+                                                EC200_AT_TIMEOUT_DEFAULT,
+                                                timeout_ms);
+    if (st != EC200_OK) {
+        return st;
+    }
+
+    for (unsigned i = 0; i < EC200_AT_MAX_LINES; i++) {
+        int f[7] = {0};
+        bool have_summary = true;
+        for (unsigned k = 0; k < 7U; k++) {
+            if (ec200_at_parse_int_field(resp, k, &f[k]) != EC200_OK) {
+                have_summary = false;
+                break;
+            }
+        }
+        if (have_summary) {
+            if (f[0] != 0) {
+                return EC200_ERR_MODULE;
+            }
+            res->sent       = (uint16_t)f[1];
+            res->received   = (uint16_t)f[2];
+            res->lost       = (uint16_t)f[3];
+            res->min_rtt_ms = (uint32_t)f[4];
+            res->max_rtt_ms = (uint32_t)f[5];
+            res->avg_rtt_ms = (uint32_t)f[6];
+            return EC200_OK;
+        }
+        /* Per-reply line: keep waiting for the summary. */
+        st = ec200_at_wait_prefix(h, "+QPING:", resp, sizeof(resp),
+                                  timeout_ms);
+        if (st != EC200_OK) {
+            return st;
+        }
+    }
+    return EC200_ERR_TIMEOUT;
 }

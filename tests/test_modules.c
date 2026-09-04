@@ -435,6 +435,8 @@ void test_data_connect_full_flow(void)
     ctx.type = EC200_PDP_TYPE_IP;
     (void)snprintf(ctx.apn, sizeof(ctx.apn), "%s", "internet");
 
+    /* Initial probe finds no address yet, then the full flow runs. */
+    lb_on_write("AT+CGPADDR=1", "\r\n+CGPADDR: 1\r\n\r\nOK\r\n");
     lb_on_write("AT+CGDCONT=1,\"IP\",\"internet\"", "\r\nOK\r\n");
     lb_on_write("AT+CGACT=1,1", "\r\nOK\r\n");
     lb_on_write("AT+CGPADDR=1",
@@ -442,6 +444,90 @@ void test_data_connect_full_flow(void)
     TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_data_connect(&h, &ctx));
     TEST_ASSERT_EQUAL_STRING("10.64.12.7", ctx.ip_addr);
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_data_connect(&h, NULL));
+}
+
+void test_data_connect_zero_ip_falls_through(void)
+{
+    /* Regression: CGPADDR reporting 0.0.0.0 means the context is defined
+     * but not up - connect must run the full activation flow, not report
+     * success with an unusable address. */
+    ec200_pdp_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.cid  = 1;
+    ctx.type = EC200_PDP_TYPE_IP;
+
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"0.0.0.0\"\r\n\r\nOK\r\n");
+    lb_on_write("AT+CGDCONT", "\r\nOK\r\n");
+    lb_on_write("AT+CGACT=1,1", "\r\nOK\r\n");
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"10.1.2.3\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_data_connect(&h, &ctx));
+    TEST_ASSERT_EQUAL_STRING("10.1.2.3", ctx.ip_addr);
+}
+
+void test_data_connect_activate_fails_but_address_present(void)
+{
+    /* The module rejects activating an already-active context; that is not
+     * a failure when an address is assigned afterwards. */
+    ec200_pdp_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.cid  = 1;
+    ctx.type = EC200_PDP_TYPE_IP;
+
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"0.0.0.0\"\r\n\r\nOK\r\n");
+    lb_on_write("AT+CGDCONT", "\r\nOK\r\n");
+    lb_on_write("AT+CGACT=1,1", "\r\nERROR\r\n");
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"10.9.9.9\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_data_connect(&h, &ctx));
+    TEST_ASSERT_EQUAL_STRING("10.9.9.9", ctx.ip_addr);
+}
+
+void test_data_connect_never_gets_address(void)
+{
+    /* Activation fails AND no address is ever assigned: report the
+     * activation error, not success. */
+    ec200_pdp_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.cid  = 1;
+    ctx.type = EC200_PDP_TYPE_IP;
+
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"0.0.0.0\"\r\n\r\nOK\r\n");
+    lb_on_write("AT+CGDCONT", "\r\nOK\r\n");
+    lb_on_write("AT+CGACT=1,1", "\r\nERROR\r\n");
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"0.0.0.0\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_data_connect(&h, &ctx));
+
+    /* Activation succeeds but the address query itself fails. */
+    SETUP_MODEM(&h);
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"0.0.0.0\"\r\n\r\nOK\r\n");
+    lb_on_write("AT+CGDCONT", "\r\nOK\r\n");
+    lb_on_write("AT+CGACT=1,1", "\r\nOK\r\n");
+    lb_on_write("AT+CGPADDR=1", "\r\n+CME ERROR: 30\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CME, ec200_data_connect(&h, &ctx));
+}
+
+void test_data_connect_already_active(void)
+{
+    /* Regression (real Airtel LTE): the attach bearer is already active —
+     * connect must use the existing address instead of re-activating. */
+    ec200_pdp_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.cid  = 1;
+    ctx.type = EC200_PDP_TYPE_IP;
+
+    lb_on_write("AT+CGPADDR=1",
+                "\r\n+CGPADDR: 1,\"100.64.21.9\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_data_connect(&h, &ctx));
+    TEST_ASSERT_EQUAL_STRING("100.64.21.9", ctx.ip_addr);
+    /* No CGDCONT/CGACT must have been sent. */
+    TEST_ASSERT_NULL(strstr(lb_tx_data(), "AT+CGDCONT"));
+    TEST_ASSERT_NULL(strstr(lb_tx_data(), "AT+CGACT"));
 }
 
 void test_power_set_cfun_variants(void)
@@ -908,6 +994,346 @@ void test_branch_gnss_nmea_arms(void)
         ec200_gnss_set_nmea_output(&h, 3));
 }
 
+/* =========================================================================
+ * Low power: PSM timer encoding (pure functions, no module traffic)
+ * ========================================================================= */
+
+void test_psm_encode_tau_units(void)
+{
+    char s[EC200_PSM_TIMER_STR_LEN];
+
+    /* One case per unit code in the T3412-extended table. */
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_encode_tau(2, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("01100001", s);          /* 011 = 2 s      */
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_encode_tau(30, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("10000001", s);          /* 100 = 30 s     */
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_encode_tau(60, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("10100001", s);          /* 101 = 1 min    */
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_encode_tau(600, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("00000001", s);          /* 000 = 10 min   */
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_encode_tau(3600, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("00100001", s);          /* 001 = 1 hour   */
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_encode_tau(36000, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("01000001", s);          /* 010 = 10 hours */
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_psm_encode_tau(2U * 320U * 3600U, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("11000010", s);          /* 110 = 320 h, x2 */
+
+    /* Zero means "deactivated", which is unit code 111. */
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_encode_tau(0, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("11100000", s);
+
+    /* The coarsest exact unit wins: 2 hours is 2x1h, not 3600x2s. */
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_encode_tau(7200, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("00100010", s);
+}
+
+void test_psm_encode_active_time_units(void)
+{
+    char s[EC200_PSM_TIMER_STR_LEN];
+
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_psm_encode_active_time(2, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("00000001", s);          /* 000 = 2 s      */
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_psm_encode_active_time(60, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("00100001", s);          /* 001 = 1 min    */
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_psm_encode_active_time(360, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("01000001", s);          /* 010 = decihour */
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_psm_encode_active_time(0, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_STRING("11100000", s);
+}
+
+void test_psm_encode_rejects_unrepresentable(void)
+{
+    char s[EC200_PSM_TIMER_STR_LEN];
+
+    /* Not a whole number of any unit: refused, never rounded, because a
+     * silently shortened wake interval is an invisible power bug. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_encode_tau(3660, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_encode_active_time(45, s, sizeof(s)));
+
+    /* Divides exactly but needs a multiplier above 31. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_encode_tau(64, s, sizeof(s)));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_encode_active_time(64, s, sizeof(s)));
+
+    /* Beyond the largest unit's range entirely. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_encode_tau(33U * 320U * 3600U, s, sizeof(s)));
+}
+
+void test_psm_encode_buffer_validation(void)
+{
+    char s[EC200_PSM_TIMER_STR_LEN];
+    char tiny[4];
+
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_encode_tau(60, NULL, sizeof(s)));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_encode_tau(60, tiny, sizeof(tiny)));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_encode_active_time(60, NULL, sizeof(s)));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_encode_active_time(60, tiny, sizeof(tiny)));
+}
+
+void test_psm_decode_round_trip(void)
+{
+    static const uint32_t tau_secs[] = {
+        0, 2, 30, 60, 600, 3600, 36000, 2U * 320U * 3600U, 7200
+    };
+    for (size_t i = 0; i < sizeof(tau_secs) / sizeof(tau_secs[0]); i++) {
+        char s[EC200_PSM_TIMER_STR_LEN];
+        uint32_t back = 12345U;
+        TEST_ASSERT_EQUAL_INT(EC200_OK,
+            ec200_psm_encode_tau(tau_secs[i], s, sizeof(s)));
+        TEST_ASSERT_EQUAL_INT(EC200_OK,
+            ec200_psm_decode_timer(s, true, &back));
+        TEST_ASSERT_EQUAL_UINT32(tau_secs[i], back);
+    }
+
+    static const uint32_t act_secs[] = { 0, 2, 60, 360 };
+    for (size_t i = 0; i < sizeof(act_secs) / sizeof(act_secs[0]); i++) {
+        char s[EC200_PSM_TIMER_STR_LEN];
+        uint32_t back = 12345U;
+        TEST_ASSERT_EQUAL_INT(EC200_OK,
+            ec200_psm_encode_active_time(act_secs[i], s, sizeof(s)));
+        TEST_ASSERT_EQUAL_INT(EC200_OK,
+            ec200_psm_decode_timer(s, false, &back));
+        TEST_ASSERT_EQUAL_UINT32(act_secs[i], back);
+    }
+}
+
+void test_psm_decode_failures(void)
+{
+    uint32_t secs = 0;
+
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_decode_timer(NULL, true, &secs));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_psm_decode_timer("00100001", true, NULL));
+
+    /* Not eight bits, or not bits at all. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_psm_decode_timer("0010000", true, &secs));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_psm_decode_timer("0010000x", true, &secs));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_psm_decode_timer("001000010", true, &secs));
+
+    /* Unit code 110 (320 hours) exists for TAU but is reserved for T3324. */
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_psm_decode_timer("11000001", true, &secs));
+    TEST_ASSERT_EQUAL_UINT32(320U * 3600U, secs);
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_psm_decode_timer("11000001", false, &secs));
+}
+
+/* =========================================================================
+ * Low power: PSM and eDRX transactions
+ * ========================================================================= */
+
+void test_psm_set_get_disable(void)
+{
+    ec200_psm_config_t cfg = { true, "00100001", "00000001" };
+    lb_on_write("AT+CPSMS=1,,,\"00100001\",\"00000001\"", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_set(&h, &cfg));
+
+    lb_on_write("AT+CPSMS?",
+                "\r\n+CPSMS: 1,,,\"00100001\",\"00000001\"\r\n\r\nOK\r\n");
+    ec200_psm_config_t got;
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_get(&h, &got));
+    TEST_ASSERT_TRUE(got.enabled);
+    TEST_ASSERT_EQUAL_STRING("00100001", got.periodic_tau);
+    TEST_ASSERT_EQUAL_STRING("00000001", got.active_time);
+
+    /* Disabled: the module reports mode 0 and leaves the timers empty. */
+    lb_on_write("AT+CPSMS?", "\r\n+CPSMS: 0,,,,\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_get(&h, &got));
+    TEST_ASSERT_FALSE(got.enabled);
+    TEST_ASSERT_EQUAL_STRING("", got.periodic_tau);
+    TEST_ASSERT_EQUAL_STRING("", got.active_time);
+
+    lb_on_write("AT+CPSMS=0", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_disable(&h));
+
+    /* enabled=false routes through the disable path, timers ignored. */
+    ec200_psm_config_t off = { false, "", "" };
+    lb_on_write("AT+CPSMS=0", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_set(&h, &off));
+}
+
+void test_psm_set_validation(void)
+{
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_psm_set(&h, NULL));
+
+    /* A short timer string would go on the wire malformed. */
+    ec200_psm_config_t short_tau = { true, "0010", "00000001" };
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_psm_set(&h, &short_tau));
+    ec200_psm_config_t short_act = { true, "00100001", "000" };
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_psm_set(&h, &short_act));
+}
+
+void test_psm_get_failures(void)
+{
+    ec200_psm_config_t cfg;
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_psm_get(&h, NULL));
+
+    /* Nothing scripted -> timeout. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT, ec200_psm_get(&h, &cfg));
+
+    /* Mode field missing. */
+    lb_on_write("AT+CPSMS?", "\r\n+CPSMS: \r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE, ec200_psm_get(&h, &cfg));
+}
+
+void test_psm_get_reply_shapes(void)
+{
+    ec200_psm_config_t cfg;
+
+    /* Quotes are optional in the reply; both forms must parse.  The first
+     * timer here ends at a comma, the second at the end of the line. */
+    lb_on_write("AT+CPSMS?",
+                "\r\n+CPSMS: 1,,,00100001,00000001\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_get(&h, &cfg));
+    TEST_ASSERT_TRUE(cfg.enabled);
+    TEST_ASSERT_EQUAL_STRING("00100001", cfg.periodic_tau);
+    TEST_ASSERT_EQUAL_STRING("00000001", cfg.active_time);
+
+    /* A space after the separator is tolerated. */
+    lb_on_write("AT+CPSMS?",
+                "\r\n+CPSMS: 1,,, \"00100001\", \"00000001\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_get(&h, &cfg));
+    TEST_ASSERT_EQUAL_STRING("00100001", cfg.periodic_tau);
+    TEST_ASSERT_EQUAL_STRING("00000001", cfg.active_time);
+
+    /* The line stops before the timers: both come back empty, not garbage. */
+    lb_on_write("AT+CPSMS?", "\r\n+CPSMS: 1\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_psm_get(&h, &cfg));
+    TEST_ASSERT_EQUAL_STRING("", cfg.periodic_tau);
+    TEST_ASSERT_EQUAL_STRING("", cfg.active_time);
+}
+
+void test_edrx_value_longer_than_buffer_is_truncated(void)
+{
+    /* Defensive: the spec says four bits.  A firmware that sends more must
+     * not be allowed to overrun the caller's buffer. */
+    lb_on_write("AT+CEDRXRDP",
+                "\r\n+CEDRXRDP: 4,\"010101010101\"\r\n\r\nOK\r\n");
+    ec200_edrx_dynamic_t dyn;
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_edrx_get_dynamic(&h, &dyn));
+    TEST_ASSERT_EQUAL_STRING("0101", dyn.requested);
+}
+
+void test_edrx_set_get_disable(void)
+{
+    ec200_edrx_config_t cfg = { true, EC200_EDRX_ACT_LTE_CAT_M1, "0101" };
+    lb_on_write("AT+CEDRXS=1,4,\"0101\"", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_edrx_set(&h, &cfg));
+
+    /* Real reply shape, read off the module: the mode comes FIRST, ahead of
+     * the access technology, which 3GPP 27.007's read form does not show. */
+    lb_on_write("AT+CEDRXS?", "\r\n+CEDRXS: 1,4,\"0101\"\r\n\r\nOK\r\n");
+    ec200_edrx_config_t got;
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_edrx_get(&h, &got));
+    TEST_ASSERT_TRUE(got.enabled);
+    TEST_ASSERT_EQUAL_INT(EC200_EDRX_ACT_LTE_CAT_M1, got.act_type);
+    TEST_ASSERT_EQUAL_STRING("0101", got.requested);
+
+    /* Mode 0 with a value still remembered: disabled, but the technology
+     * and value are reported.  This is what the module answers after a
+     * disable, and reading the mode from field 0 is what gets it right. */
+    lb_on_write("AT+CEDRXS?", "\r\n+CEDRXS: 0,4,\"0101\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_edrx_get(&h, &got));
+    TEST_ASSERT_FALSE(got.enabled);
+    TEST_ASSERT_EQUAL_INT(EC200_EDRX_ACT_LTE_CAT_M1, got.act_type);
+    TEST_ASSERT_EQUAL_STRING("0101", got.requested);
+
+    /* Never configured: mode alone, nothing after it. */
+    lb_on_write("AT+CEDRXS?", "\r\n+CEDRXS: 0\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_edrx_get(&h, &got));
+    TEST_ASSERT_FALSE(got.enabled);
+    TEST_ASSERT_EQUAL_STRING("", got.requested);
+
+    lb_on_write("AT+CEDRXS=0,4", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_edrx_disable(&h, EC200_EDRX_ACT_LTE_CAT_M1));
+
+    ec200_edrx_config_t off = { false, EC200_EDRX_ACT_GSM, "" };
+    lb_on_write("AT+CEDRXS=0,2", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_edrx_set(&h, &off));
+}
+
+void test_edrx_validation(void)
+{
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_edrx_set(&h, NULL));
+
+    /* Every accepted access technology, and one that is not. */
+    ec200_edrx_config_t bad_act = { true, (ec200_edrx_act_t)9, "0101" };
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_edrx_set(&h, &bad_act));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_edrx_disable(&h, (ec200_edrx_act_t)9));
+
+    lb_on_write("AT+CEDRXS=0,3", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_edrx_disable(&h, EC200_EDRX_ACT_UTRAN));
+    lb_on_write("AT+CEDRXS=0,5", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_edrx_disable(&h, EC200_EDRX_ACT_LTE_NB_S1));
+
+    /* An eDRX value is four bits, not fewer. */
+    ec200_edrx_config_t short_val = { true, EC200_EDRX_ACT_GSM, "01" };
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_edrx_set(&h, &short_val));
+}
+
+void test_edrx_get_failures(void)
+{
+    ec200_edrx_config_t cfg;
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_edrx_get(&h, NULL));
+
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT, ec200_edrx_get(&h, &cfg));
+
+    lb_on_write("AT+CEDRXS?", "\r\n+CEDRXS: \r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE, ec200_edrx_get(&h, &cfg));
+}
+
+void test_edrx_dynamic(void)
+{
+    lb_on_write("AT+CEDRXRDP",
+                "\r\n+CEDRXRDP: 4,\"0101\",\"0011\",\"1001\"\r\n\r\nOK\r\n");
+    ec200_edrx_dynamic_t dyn;
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_edrx_get_dynamic(&h, &dyn));
+    TEST_ASSERT_EQUAL_INT(EC200_EDRX_ACT_LTE_CAT_M1, dyn.act_type);
+    TEST_ASSERT_EQUAL_STRING("0101", dyn.requested);
+    TEST_ASSERT_EQUAL_STRING("0011", dyn.granted);
+    TEST_ASSERT_EQUAL_STRING("1001", dyn.paging_time_window);
+
+    /* eDRX not in use: the module reports the AcT alone. */
+    lb_on_write("AT+CEDRXRDP", "\r\n+CEDRXRDP: 0\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_edrx_get_dynamic(&h, &dyn));
+    TEST_ASSERT_EQUAL_STRING("", dyn.requested);
+    TEST_ASSERT_EQUAL_STRING("", dyn.granted);
+    TEST_ASSERT_EQUAL_STRING("", dyn.paging_time_window);
+}
+
+void test_edrx_dynamic_failures(void)
+{
+    ec200_edrx_dynamic_t dyn;
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_edrx_get_dynamic(&h, NULL));
+
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT,
+        ec200_edrx_get_dynamic(&h, &dyn));
+
+    lb_on_write("AT+CEDRXRDP", "\r\n+CEDRXRDP: \r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE, ec200_edrx_get_dynamic(&h, &dyn));
+}
+
 void test_branch_power_get_cfun_error(void)
 {
     lb_on_write("AT+CFUN?", "\r\n+CME ERROR: 3\r\n");
@@ -916,6 +1342,19 @@ void test_branch_power_get_cfun_error(void)
 }
 
 /* ========================================================================= */
+
+void test_set_operator_rejects_overlong_name(void)
+{
+    /* An over-long name must be rejected, not silently truncated into a
+     * malformed AT+COPS command. */
+    static char toolong[EC200_MAX_OPERATOR_LEN + 8];
+    memset(toolong, 'o', sizeof(toolong) - 1U);
+    toolong[sizeof(toolong) - 1U] = 0;
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_net_set_operator(&h, EC200_COPS_MODE_MANUAL,
+                               EC200_COPS_FMT_NUMERIC, toolong,
+                               EC200_ACT_LTE));
+}
 
 int main(void)
 {
@@ -963,6 +1402,10 @@ int main(void)
     RUN_TEST(test_net_wait_registered_timeout);
     RUN_TEST(test_data_activate_deactivate);
     RUN_TEST(test_data_connect_full_flow);
+    RUN_TEST(test_data_connect_already_active);
+    RUN_TEST(test_data_connect_zero_ip_falls_through);
+    RUN_TEST(test_data_connect_activate_fails_but_address_present);
+    RUN_TEST(test_data_connect_never_gets_address);
     RUN_TEST(test_power_set_cfun_variants);
     RUN_TEST(test_power_down_sleep_reset);
     RUN_TEST(test_gnss_start_stop);
@@ -996,5 +1439,22 @@ int main(void)
     RUN_TEST(test_branch_gnss_arms);
     RUN_TEST(test_branch_gnss_nmea_arms);
     RUN_TEST(test_branch_power_get_cfun_error);
+    RUN_TEST(test_set_operator_rejects_overlong_name);
+    RUN_TEST(test_psm_encode_tau_units);
+    RUN_TEST(test_psm_encode_active_time_units);
+    RUN_TEST(test_psm_encode_rejects_unrepresentable);
+    RUN_TEST(test_psm_encode_buffer_validation);
+    RUN_TEST(test_psm_decode_round_trip);
+    RUN_TEST(test_psm_decode_failures);
+    RUN_TEST(test_psm_set_get_disable);
+    RUN_TEST(test_psm_set_validation);
+    RUN_TEST(test_psm_get_failures);
+    RUN_TEST(test_psm_get_reply_shapes);
+    RUN_TEST(test_edrx_value_longer_than_buffer_is_truncated);
+    RUN_TEST(test_edrx_set_get_disable);
+    RUN_TEST(test_edrx_validation);
+    RUN_TEST(test_edrx_get_failures);
+    RUN_TEST(test_edrx_dynamic);
+    RUN_TEST(test_edrx_dynamic_failures);
     return UNITY_END();
 }

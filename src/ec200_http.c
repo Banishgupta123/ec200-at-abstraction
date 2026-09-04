@@ -62,6 +62,17 @@ ec200_status_t ec200_http_set_context(ec200_handle_t *h, uint8_t ctx_id)
     return ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_DEFAULT);
 }
 
+ec200_status_t ec200_http_set_ssl_context(ec200_handle_t *h, uint8_t ssl_ctx)
+{
+    if (ssl_ctx > 5U) {
+        return EC200_ERR_PARAM;
+    }
+    char cmd[48];
+    (void)snprintf(cmd, sizeof(cmd), "AT+QHTTPCFG=\"sslctxid\",%u",
+                   (unsigned)ssl_ctx);
+    return ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_DEFAULT);
+}
+
 ec200_status_t ec200_http_set_url(ec200_handle_t *h, const char *url)
 {
     if (!url) {
@@ -116,27 +127,29 @@ ec200_status_t ec200_http_get(ec200_handle_t       *h,
     return parse_http_result(raw, resp);
 }
 
-ec200_status_t ec200_http_post(ec200_handle_t       *h,
-                               const uint8_t        *body,
-                               uint32_t              body_len,
-                               const char           *content_type,
-                               uint32_t              timeout_ms,
-                               ec200_http_response_t *resp)
+ec200_status_t ec200_http_post(ec200_handle_t          *h,
+                               const uint8_t           *body,
+                               uint32_t                 body_len,
+                               ec200_http_content_type_t content_type,
+                               uint32_t                 timeout_ms,
+                               ec200_http_response_t   *resp)
 {
     if (!resp || !body || body_len == 0U || body_len > 65535U) {
         return EC200_ERR_PARAM;
     }
+    if ((int)content_type < 0 || (int)content_type > 4) {
+        return EC200_ERR_PARAM;
+    }
 
-    /* Set content-type if provided. */
-    if (content_type) {
-        char cfg_cmd[128];
-        (void)snprintf(cfg_cmd, sizeof(cfg_cmd),
-                       "AT+QHTTPCFG=\"contenttype\",\"%s\"", content_type);
-        ec200_status_t cst = ec200_at_send(h, cfg_cmd, NULL, 0,
-                                           EC200_AT_TIMEOUT_DEFAULT);
-        if (cst != EC200_OK) {
-            return cst;
-        }
+    /* The EC200U's AT+QHTTPCFG="contenttype" takes a numeric index (0-4),
+     * NOT a MIME string. */
+    char cfg_cmd[48];
+    (void)snprintf(cfg_cmd, sizeof(cfg_cmd),
+                   "AT+QHTTPCFG=\"contenttype\",%d", (int)content_type);
+    ec200_status_t cst = ec200_at_send(h, cfg_cmd, NULL, 0,
+                                       EC200_AT_TIMEOUT_DEFAULT);
+    if (cst != EC200_OK) {
+        return cst;
     }
 
     char cmd[64];
@@ -145,11 +158,15 @@ ec200_status_t ec200_http_post(ec200_handle_t       *h,
                    timeout_secs(timeout_ms),
                    timeout_secs(timeout_ms));
 
-    /* CONNECT prompt → body → OK → +QHTTPPOST URC. */
+    /* CONNECT prompt → body → OK → +QHTTPPOST URC.  The prompt can be
+     * delayed (TLS setup, busy module), so honour the caller's budget
+     * rather than a fixed short default. */
     char connect_buf[32];
     ec200_status_t st = ec200_at_send_expect(h, cmd, "CONNECT",
                                              connect_buf, sizeof(connect_buf),
-                                             EC200_AT_TIMEOUT_DEFAULT);
+                                             (timeout_ms > EC200_AT_TIMEOUT_DEFAULT)
+                                               ? timeout_ms
+                                               : EC200_AT_TIMEOUT_DEFAULT);
     if (st != EC200_OK) {
         return st;
     }
@@ -159,7 +176,9 @@ ec200_status_t ec200_http_post(ec200_handle_t       *h,
         return st;
     }
 
-    st = ec200_at_wait_final(h, EC200_AT_TIMEOUT_DEFAULT);
+    /* The module may be busy (TLS handshake, large body) before it
+     * acknowledges the body, so allow a generous window for this OK. */
+    st = ec200_at_wait_final(h, EC200_AT_TIMEOUT_LONG);
     if (st != EC200_OK) {
         return st;
     }

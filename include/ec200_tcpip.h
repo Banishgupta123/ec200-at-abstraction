@@ -108,6 +108,47 @@ ec200_status_t ec200_tcp_bytes_available(ec200_handle_t *h,
                                          uint8_t         conn_id,
                                          uint32_t       *bytes_avail);
 
+/**
+ * @brief Resolve a hostname to an IP address (AT+QIDNSGIP).
+ *
+ * Requires an activated PDP context.  Returns the first address reported.
+ *
+ * @param h           Initialised handle.
+ * @param pdp_ctx     PDP context id (1-16), already activated.
+ * @param host        Hostname to resolve.
+ * @param ip          Output buffer for the address text.
+ * @param ip_sz       Size of @p ip.
+ * @param timeout_ms  Deadline for the lookup.
+ *
+ * @return EC200_OK, EC200_ERR_PARAM, EC200_ERR_MODULE (lookup failed), or
+ *         EC200_ERR_TIMEOUT.
+ */
+ec200_status_t ec200_tcp_dns_resolve(ec200_handle_t *h,
+                                     uint8_t         pdp_ctx,
+                                     const char     *host,
+                                     char           *ip,
+                                     size_t          ip_sz,
+                                     uint32_t        timeout_ms);
+
+/**
+ * @brief Ping a host (AT+QPING) and summarise the result.
+ *
+ * @param h          Initialised handle.
+ * @param pdp_ctx    PDP context id (1-16), already activated.
+ * @param host       Host name or IP to ping.
+ * @param count      Number of echo requests (1-10).
+ * @param res        Output: sent/received/lost and RTT statistics.
+ * @param timeout_ms Overall deadline.
+ *
+ * @return EC200_OK, EC200_ERR_PARAM, EC200_ERR_MODULE, or EC200_ERR_TIMEOUT.
+ */
+ec200_status_t ec200_tcp_ping(ec200_handle_t      *h,
+                              uint8_t              pdp_ctx,
+                              const char          *host,
+                              uint8_t              count,
+                              ec200_ping_result_t *res,
+                              uint32_t             timeout_ms);
+
 /** @} */ /* EC200_TCPIP */
 
 #ifdef __cplusplus

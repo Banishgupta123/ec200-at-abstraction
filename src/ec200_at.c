@@ -115,6 +115,36 @@ static int rx_line(ec200_handle_t *h, uint32_t *budget)
 }
 
 /**
+ * @brief Record a +CME/+CMS error payload.
+ *
+ * With AT+CMEE=2 the module reports a verbose string ("Operation not
+ * allowed") rather than a number, so atoi() would silently yield 0 and
+ * report a fake error code.  The numeric code is stored only when the
+ * payload really is numeric; the raw text is always retained.
+ */
+static void record_error(ec200_handle_t *h, const char *payload, int *code)
+{
+    while (*payload == ' ') {
+        payload++;
+    }
+
+    bool numeric = (*payload >= '0' && *payload <= '9');
+    for (const char *p = payload; numeric && *p != '\0'; p++) {
+        if (*p < '0' || *p > '9') {
+            numeric = false;
+        }
+    }
+    *code = numeric ? atoi(payload) : -1;
+
+    size_t len = strlen(payload);
+    if (len >= sizeof(h->_last_err_text)) {
+        len = sizeof(h->_last_err_text) - 1U;
+    }
+    memcpy(h->_last_err_text, payload, len);
+    h->_last_err_text[len] = '\0';
+}
+
+/**
  * @brief Classify a complete response line.
  *
  * @return 1 = success terminal ("OK"), 2 = error terminal, 0 = neither.
@@ -131,11 +161,13 @@ static int is_terminal(ec200_handle_t *h, const char *line)
         return 2; /* data-call setup failed / carrier lost */
     }
     if (strncmp(line, "+CME ERROR:", 11) == 0) {
-        h->_last_cme_error = atoi(line + 11);
+        record_error(h, line + 11, &h->_last_cme_error);
+        h->_last_err_kind = 1U;
         return 2;
     }
     if (strncmp(line, "+CMS ERROR:", 11) == 0) {
-        h->_last_cms_error = atoi(line + 11);
+        record_error(h, line + 11, &h->_last_cms_error);
+        h->_last_err_kind = 2U;
         return 2;
     }
     return 0;
@@ -144,10 +176,10 @@ static int is_terminal(ec200_handle_t *h, const char *line)
 /** Map an error-terminal line to the corresponding status code. */
 static ec200_status_t map_error_terminal(const ec200_handle_t *h)
 {
-    if (h->_last_cme_error >= 0) {
+    if (h->_last_err_kind == 1U) {
         return EC200_ERR_CME;
     }
-    if (h->_last_cms_error >= 0) {
+    if (h->_last_err_kind == 2U) {
         return EC200_ERR_CMS;
     }
     return EC200_ERR_MODULE;
@@ -198,6 +230,8 @@ static ec200_status_t at_transmit(ec200_handle_t *h, const char *cmd)
 
     h->_last_cme_error = -1;
     h->_last_cms_error = -1;
+    h->_last_err_kind  = 0U;
+    h->_last_err_text[0] = '\0';
 
     int cmdlen = snprintf(h->_tx_buf, sizeof(h->_tx_buf), "%s\r", cmd);
     /* cmdlen < 0 cannot happen for this format string. */
@@ -766,6 +800,11 @@ ec200_status_t ec200_at_parse_int_field(const char *line,
 /* -------------------------------------------------------------------------
  * Error introspection
  * ------------------------------------------------------------------------- */
+
+const char *ec200_at_last_error_text(const ec200_handle_t *h)
+{
+    return (h != NULL) ? h->_last_err_text : "";
+}
 
 int ec200_at_last_cme_error(const ec200_handle_t *h)
 {

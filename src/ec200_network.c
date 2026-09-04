@@ -203,7 +203,14 @@ ec200_status_t ec200_net_set_operator(ec200_handle_t    *h,
                                       const char        *oper,
                                       ec200_act_t        act)
 {
-    char cmd[64];
+    /* An over-long name would silently truncate into a malformed command. */
+    if (oper != NULL && strlen(oper) >= EC200_MAX_OPERATOR_LEN) {
+        return EC200_ERR_PARAM;
+    }
+
+    /* Worst case: "AT+COPS=" + three ints (11 each) + quotes + a 31-char
+     * operator name = 78 bytes, so 96 makes truncation impossible. */
+    char cmd[96];
     if (mode == EC200_COPS_MODE_AUTOMATIC) {
         (void)snprintf(cmd, sizeof(cmd), "AT+COPS=%d", (int)mode);
     } else if (oper && oper[0] != '\0') {
@@ -214,6 +221,94 @@ ec200_status_t ec200_net_set_operator(ec200_handle_t    *h,
                        (int)mode, (int)format);
     }
     return ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_COPS);
+}
+
+ec200_status_t ec200_net_get_info(ec200_handle_t       *h,
+                                  ec200_network_info_t *info)
+{
+    if (!info) {
+        return EC200_ERR_PARAM;
+    }
+    memset(info, 0, sizeof(*info));
+
+    char resp[128];
+    ec200_status_t st = ec200_at_send_wait(h, "AT+QNWINFO", "+QNWINFO:",
+                                           resp, sizeof(resp),
+                                           EC200_AT_TIMEOUT_DEFAULT);
+    if (st != EC200_OK) {
+        return st;
+    }
+
+    /* +QNWINFO: "FDD LTE","40404","LTE BAND 3",1650 */
+    const char *p = strchr(resp, ':');
+    p = (p != NULL) ? (p + 1) : resp; /* GCOVR_EXCL_BR_LINE */
+    unsigned chan = 0;
+    int n = sscanf(p, " \"%23[^\"]\",\"%15[^\"]\",\"%23[^\"]\",%u",
+                   info->act, info->oper, info->band, &chan);
+    if (n < 1) {
+        return EC200_ERR_PARSE; /* e.g. "No Service" */
+    }
+    info->channel = (uint32_t)chan;
+    return EC200_OK;
+}
+
+ec200_status_t ec200_net_get_spn(ec200_handle_t *h, char *name, size_t sz)
+{
+    if (!name || sz == 0U) {
+        return EC200_ERR_PARAM;
+    }
+
+    char resp[128];
+    ec200_status_t st = ec200_at_send_wait(h, "AT+QSPN", "+QSPN:",
+                                           resp, sizeof(resp),
+                                           EC200_AT_TIMEOUT_DEFAULT);
+    if (st != EC200_OK) {
+        return st;
+    }
+
+    /* +QSPN: "<full>","<short>","<spn>",<alphabet>,"<rplmn>" */
+    const char *q = strchr(resp, '"');
+    if (q == NULL) {
+        return EC200_ERR_PARSE;
+    }
+    const char *e = strchr(q + 1, '"');
+    if (e == NULL) {
+        return EC200_ERR_PARSE;
+    }
+    size_t len = (size_t)(e - q - 1);
+    if (len >= sz) {
+        len = sz - 1U;
+    }
+    memcpy(name, q + 1, len);
+    name[len] = '\0';
+    return EC200_OK;
+}
+
+ec200_status_t ec200_net_set_attached(ec200_handle_t *h, bool attach)
+{
+    char cmd[24];
+    (void)snprintf(cmd, sizeof(cmd), "AT+CGATT=%d", attach ? 1 : 0);
+    return ec200_at_send(h, cmd, NULL, 0, EC200_AT_TIMEOUT_LONG);
+}
+
+ec200_status_t ec200_net_is_attached(ec200_handle_t *h, bool *attached)
+{
+    if (!attached) {
+        return EC200_ERR_PARAM;
+    }
+    char resp[48];
+    ec200_status_t st = ec200_at_send_wait(h, "AT+CGATT?", "+CGATT:",
+                                           resp, sizeof(resp),
+                                           EC200_AT_TIMEOUT_DEFAULT);
+    if (st != EC200_OK) {
+        return st;
+    }
+    int v = 0;
+    if (ec200_at_parse_int_field(resp, 0U, &v) != EC200_OK) {
+        return EC200_ERR_PARSE;
+    }
+    *attached = (v == 1);
+    return EC200_OK;
 }
 
 ec200_status_t ec200_net_wait_registered(ec200_handle_t *h,

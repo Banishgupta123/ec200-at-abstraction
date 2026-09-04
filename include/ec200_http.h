@@ -30,6 +30,19 @@ extern "C" {
 ec200_status_t ec200_http_set_context(ec200_handle_t *h, uint8_t ctx_id);
 
 /**
+ * @brief Bind an SSL context for HTTPS (AT+QHTTPCFG="sslctxid").
+ *
+ * Call after ec200_ssl_configure() and before ec200_http_set_url() with an
+ * `https://` URL.  The SSL context provides the TLS version, cipher suite,
+ * and (for authenticated levels) certificates.
+ *
+ * @param h        Initialised handle.
+ * @param ssl_ctx  SSL context id (0-5) previously configured.
+ * @return EC200_OK or an error code.
+ */
+ec200_status_t ec200_http_set_ssl_context(ec200_handle_t *h, uint8_t ssl_ctx);
+
+/**
  * @brief Set the HTTP request URL (AT+QHTTPURL).
  *
  * @param h    Initialised library handle.
@@ -62,18 +75,19 @@ ec200_status_t ec200_http_get(ec200_handle_t       *h,
  * @param h            Initialised library handle.
  * @param body         Pointer to the POST body data.
  * @param body_len     Length of @p body in bytes.
- * @param content_type Content-Type string (e.g. "application/json").
+ * @param content_type Body content type (the EC200U takes a numeric index,
+ *                     not a MIME string — see ::ec200_http_content_type_t).
  * @param timeout_ms   Response wait timeout in milliseconds.
  * @param resp         Output: HTTP status code and content length.
  *
  * @return EC200_OK or an error code.
  */
-ec200_status_t ec200_http_post(ec200_handle_t       *h,
-                               const uint8_t        *body,
-                               uint32_t              body_len,
-                               const char           *content_type,
-                               uint32_t              timeout_ms,
-                               ec200_http_response_t *resp);
+ec200_status_t ec200_http_post(ec200_handle_t          *h,
+                               const uint8_t           *body,
+                               uint32_t                 body_len,
+                               ec200_http_content_type_t content_type,
+                               uint32_t                 timeout_ms,
+                               ec200_http_response_t   *resp);
 
 /**
  * @brief Read the HTTP response body (AT+QHTTPREAD).

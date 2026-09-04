@@ -33,6 +33,28 @@ extern "C" {
  */
 #define EC200_RX_BUFFER_SIZE      (2048U)
 #define EC200_TX_BUFFER_SIZE      (512U)    /**< Transmit scratch-buffer size     */
+
+/**
+ * Response-buffer size for ec200_sms_read().  One message: a +CMGR header
+ * plus a body of at most EC200_MAX_SMS_TEXT_LEN bytes.  These buffers live
+ * on the caller's stack, so they are sized for the operation rather than
+ * from EC200_RX_BUFFER_SIZE (which is sized for the largest possible URC).
+ * Override at compile time if a firmware emits longer headers.
+ */
+#ifndef EC200_SMS_READ_BUF_LEN
+#define EC200_SMS_READ_BUF_LEN    (512U)
+#endif
+
+/**
+ * Response-buffer size for ec200_sms_list().  The module returns every
+ * matching message in one response, so this bounds how many a single call
+ * can parse (roughly 230 bytes per message, i.e. ~4 at the default).
+ * Raise it if you list many messages and can afford the stack.
+ */
+#ifndef EC200_SMS_LIST_BUF_LEN
+#define EC200_SMS_LIST_BUF_LEN    (1024U)
+#endif
+
 #define EC200_MAX_OPERATOR_LEN    (32U)     /**< Max operator name string length  */
 #define EC200_MAX_PHONE_NUM_LEN   (20U)     /**< Max phone-number string length   */
 #define EC200_MAX_SMS_TEXT_LEN    (160U)    /**< Max SMS text body length         */
@@ -46,6 +68,7 @@ extern "C" {
 #define EC200_MAX_PAYLOAD_LEN     (1460U)   /**< Max MQTT/TCP payload length      */
 #define EC200_MAX_CONNECTIONS     (12U)     /**< Max simultaneous TCP connections */
 #define EC200_MAX_URC_HANDLERS    (8U)      /**< Max registered URC prefix handlers */
+#define EC200_MAX_ERR_TEXT_LEN    (64U)     /**< Retained +CME/+CMS error text     */
 
 /* -------------------------------------------------------------------------
  * Status / return codes
@@ -195,6 +218,41 @@ typedef struct {
 /** Sentinel for "value not available" in ec200_signal_quality_t. */
 #define EC200_SIGNAL_UNKNOWN  ((int16_t)-32768)
 
+/**
+ * @brief Radio access technology / network information (AT+QNWINFO).
+ */
+typedef struct {
+    char act[24];        /**< Access technology, e.g. "FDD LTE"      */
+    char oper[16];       /**< Operator numeric (MCC+MNC)             */
+    char band[24];       /**< Band, e.g. "LTE BAND 3"                */
+    uint32_t channel;    /**< Channel / EARFCN                       */
+} ec200_network_info_t;
+
+/**
+ * @brief Ping result summary (AT+QPING).
+ */
+typedef struct {
+    uint16_t sent;        /**< Requests sent                          */
+    uint16_t received;    /**< Replies received                       */
+    uint16_t lost;        /**< Lost packets                           */
+    uint32_t min_rtt_ms;  /**< Minimum round-trip time (ms)           */
+    uint32_t max_rtt_ms;  /**< Maximum round-trip time (ms)           */
+    uint32_t avg_rtt_ms;  /**< Average round-trip time (ms)           */
+} ec200_ping_result_t;
+
+/**
+ * @brief Module date/time (AT+CCLK / AT+QLTS).
+ */
+typedef struct {
+    uint16_t year;    /**< Full year, e.g. 2026        */
+    uint8_t  month;   /**< 1-12                        */
+    uint8_t  day;     /**< 1-31                        */
+    uint8_t  hour;    /**< 0-23                        */
+    uint8_t  minute;  /**< 0-59                        */
+    uint8_t  second;  /**< 0-59                        */
+    int8_t   tz_quarters; /**< Time zone in quarter-hours from UTC */
+} ec200_datetime_t;
+
 /* -------------------------------------------------------------------------
  * SIM types
  * ------------------------------------------------------------------------- */
@@ -243,6 +301,58 @@ typedef struct {
     char     timestamp[24];                      /**< Arrival time string         */
     char     text[EC200_MAX_SMS_TEXT_LEN + 1];   /**< Message body (NUL-term.)    */
 } ec200_sms_message_t;
+
+/**
+ * @brief SMS message storage area (AT+CPMS).
+ *
+ * The string sent on the wire is the standard 3GPP mnemonic; ::EC200_SMS_MEM_MT
+ * ("ME and SM combined") is valid for the read/delete and receive slots only.
+ */
+typedef enum {
+    EC200_SMS_MEM_SM = 0,   /**< SIM card storage                             */
+    EC200_SMS_MEM_ME = 1,   /**< Module (phone) storage                       */
+    EC200_SMS_MEM_MT = 2,   /**< ME and SM combined                           */
+} ec200_sms_mem_t;
+
+/**
+ * @brief Occupancy of one storage area, as reported by AT+CPMS.
+ */
+typedef struct {
+    uint16_t used;   /**< Messages currently stored     */
+    uint16_t total;  /**< Capacity of the storage area  */
+} ec200_sms_mem_usage_t;
+
+/**
+ * @brief Occupancy of all three AT+CPMS storage slots.
+ */
+typedef struct {
+    ec200_sms_mem_usage_t read_delete;  /**< mem1: read / delete source      */
+    ec200_sms_mem_usage_t write_send;   /**< mem2: write / send source       */
+    ec200_sms_mem_usage_t receive;      /**< mem3: where new messages land   */
+} ec200_sms_storage_t;
+
+/**
+ * @brief New-message indication settings (AT+CNMI).
+ *
+ * Field meanings are the 3GPP 27.005 ones.  The combination that delivers an
+ * index URC (`+CMTI:`) for every arriving message, with no buffering, is
+ * `{ .mode = 2, .mt = 1, .bm = 0, .ds = 0, .bfr = 0 }`.
+ */
+typedef struct {
+    uint8_t mode;  /**< URC buffering policy      (0-2)                      */
+    uint8_t mt;    /**< Routing of received SMS   (0-3)                      */
+    uint8_t bm;    /**< Cell-broadcast routing    (0-3)                      */
+    uint8_t ds;    /**< Status-report routing     (0-2)                      */
+    uint8_t bfr;   /**< Flush or discard the buffer on mode change (0-1)     */
+} ec200_sms_cnmi_t;
+
+/**
+ * @brief A parsed `+CMTI:` new-message notification.
+ */
+typedef struct {
+    ec200_sms_mem_t mem;    /**< Storage the message landed in                */
+    int             index;  /**< 1-based index within that storage            */
+} ec200_sms_notification_t;
 
 /* -------------------------------------------------------------------------
  * PDP / Data context types
@@ -305,6 +415,73 @@ typedef struct {
 } ec200_socket_t;
 
 /* -------------------------------------------------------------------------
+ * SSL / TLS types
+ * ------------------------------------------------------------------------- */
+#define EC200_MAX_FILENAME_LEN   (64U)     /**< Modem-FS filename length  */
+#define EC200_SSL_CIPHER_ALL     (0xFFFFU) /**< Support all cipher suites */
+
+/**
+ * @brief TLS protocol version (AT+QSSLCFG="sslversion").
+ */
+typedef enum {
+    EC200_SSL_VER_SSL3   = 0,
+    EC200_SSL_VER_TLS1_0 = 1,
+    EC200_SSL_VER_TLS1_1 = 2,
+    EC200_SSL_VER_TLS1_2 = 3,
+    EC200_SSL_VER_ALL    = 4,  /**< Negotiate the highest available */
+} ec200_ssl_version_t;
+
+/**
+ * @brief TLS authentication level (AT+QSSLCFG="seclevel").
+ */
+typedef enum {
+    EC200_SSL_SECLEVEL_NONE   = 0, /**< Encrypt only, no auth (MITM-able) */
+    EC200_SSL_SECLEVEL_SERVER = 1, /**< Verify server against CA          */
+    EC200_SSL_SECLEVEL_MUTUAL = 2, /**< Server + client-cert (mutual TLS) */
+} ec200_ssl_seclevel_t;
+
+/**
+ * @brief SSL context configuration (AT+QSSLCFG family).
+ *
+ * Certs are referenced by filename in the modem's filesystem; upload them
+ * first with ec200_file_upload().  Leave a filename empty ("") to skip it.
+ */
+typedef struct {
+    uint8_t              ctx_id;      /**< SSL context id (0-5)              */
+    ec200_ssl_version_t  version;     /**< TLS version                       */
+    uint16_t             ciphersuite; /**< ::EC200_SSL_CIPHER_ALL or 0xXXXX  */
+    ec200_ssl_seclevel_t seclevel;    /**< Authentication level              */
+    char cacert[EC200_MAX_FILENAME_LEN];     /**< CA cert file (seclevel>=1) */
+    char clientcert[EC200_MAX_FILENAME_LEN]; /**< Client cert (seclevel==2)  */
+    char clientkey[EC200_MAX_FILENAME_LEN];  /**< Client key  (seclevel==2)  */
+    bool ignore_localtime; /**< Skip cert validity-time check (no RTC sync)  */
+    bool enable_sni;       /**< Send TLS SNI extension                       */
+} ec200_ssl_config_t;
+
+/* -------------------------------------------------------------------------
+ * File system types
+ * ------------------------------------------------------------------------- */
+/**
+ * @brief A modem UFS directory entry: file name and size.
+ *
+ * @note Reserved for a future directory-listing API.  No function in this
+ *       library currently produces or consumes this type — use
+ *       ec200_file_exists() and ec200_file_size() to query a known filename.
+ */
+typedef struct {
+    char     name[EC200_MAX_FILENAME_LEN]; /**< File name                 */
+    uint32_t size;                         /**< Size in bytes             */
+} ec200_file_info_t;
+
+/**
+ * @brief Storage-space summary (AT+QFLDS).
+ */
+typedef struct {
+    uint32_t free_bytes;   /**< Free space (bytes)      */
+    uint32_t total_bytes;  /**< Total space (bytes)     */
+} ec200_file_storage_t;
+
+/* -------------------------------------------------------------------------
  * HTTP types
  * ------------------------------------------------------------------------- */
 /**
@@ -317,6 +494,21 @@ typedef enum {
     EC200_HTTP_DELETE = 3,
     EC200_HTTP_PUT    = 4,
 } ec200_http_method_t;
+
+/**
+ * @brief HTTP request body content type.
+ *
+ * These are the numeric indices `AT+QHTTPCFG="contenttype",<n>` expects — the
+ * EC200U does NOT accept a free-form MIME string.  JSON (4) requires recent
+ * firmware; unsupported values are rejected by the module (+CME ERROR).
+ */
+typedef enum {
+    EC200_HTTP_CT_URLENCODED   = 0, /**< application/x-www-form-urlencoded */
+    EC200_HTTP_CT_TEXT_PLAIN   = 1, /**< text/plain                       */
+    EC200_HTTP_CT_OCTET_STREAM = 2, /**< application/octet-stream         */
+    EC200_HTTP_CT_MULTIPART    = 3, /**< multipart/form-data              */
+    EC200_HTTP_CT_JSON         = 4, /**< application/json (recent FW)     */
+} ec200_http_content_type_t;
 
 /**
  * @brief HTTP response summary.
@@ -351,6 +543,8 @@ typedef struct {
     bool     clean_session;             /**< Clean session flag        */
     uint8_t  tcp_connect_id;            /**< AT+QMTOPEN context (0-5)  */
     uint8_t  client_idx;                /**< AT+QMTCONN client index   */
+    bool     use_tls;                   /**< MQTTS: enable TLS (QMTCFG "ssl") */
+    uint8_t  ssl_ctx_id;                /**< SSL context id when use_tls   */
 } ec200_mqtt_config_t;
 
 /**
@@ -396,11 +590,74 @@ typedef struct {
  * @brief Functional level for AT+CFUN.
  */
 typedef enum {
-    EC200_CFUN_MIN    = 0,  /**< Minimum functionality (RF off)    */
-    EC200_CFUN_FULL   = 1,  /**< Full functionality                */
-    EC200_CFUN_DISABLE_TX = 4, /**< Disable TX only               */
-    EC200_CFUN_AIRPLANE = 7,   /**< Airplane mode                 */
+    EC200_CFUN_MIN     = 0,  /**< Minimum functionality             */
+    EC200_CFUN_FULL    = 1,  /**< Full functionality                */
+    EC200_CFUN_RF_OFF  = 4,  /**< RF off (airplane mode)            */
+    /** @deprecated Alias for ::EC200_CFUN_RF_OFF.  The EC200U has no CFUN=7;
+     *  the older value 7 was rejected by the module (+CME ERROR). */
+    EC200_CFUN_AIRPLANE = EC200_CFUN_RF_OFF,
 } ec200_cfun_t;
+
+/* -------------------------------------------------------------------------
+ * Low-power types (PSM / eDRX)
+ * ------------------------------------------------------------------------- */
+/** Length of a 3GPP 8-bit timer string ("01000011") including the NUL. */
+#define EC200_PSM_TIMER_STR_LEN   (9U)
+
+/** Length of a 3GPP 4-bit eDRX value string ("0101") including the NUL. */
+#define EC200_EDRX_VALUE_STR_LEN  (5U)
+
+/**
+ * @brief Power Saving Mode settings (AT+CPSMS).
+ *
+ * The two timers are 3GPP 24.008 encoded bit strings, not seconds: three
+ * unit bits followed by a five-bit count. Build them with
+ * ec200_psm_encode_tau() / ec200_psm_encode_active_time() rather than by
+ * hand.
+ *
+ * The network is free to grant different values than those requested; read
+ * back what it actually assigned with ec200_psm_get().
+ */
+typedef struct {
+    bool enabled;                             /**< false disables PSM        */
+    /** T3412-extended: how long the module may stay unreachable.           */
+    char periodic_tau[EC200_PSM_TIMER_STR_LEN];
+    /** T3324: how long it stays reachable after a transition to idle.      */
+    char active_time[EC200_PSM_TIMER_STR_LEN];
+} ec200_psm_config_t;
+
+/**
+ * @brief Radio access technology an eDRX setting applies to (AT+CEDRXS).
+ */
+typedef enum {
+    EC200_EDRX_ACT_GSM        = 2,  /**< GSM                                */
+    EC200_EDRX_ACT_UTRAN      = 3,  /**< UTRAN                              */
+    EC200_EDRX_ACT_LTE_CAT_M1 = 4,  /**< E-UTRAN (WB-S1 / LTE Cat-M1)       */
+    EC200_EDRX_ACT_LTE_NB_S1  = 5,  /**< E-UTRAN (NB-S1 / NB-IoT)           */
+} ec200_edrx_act_t;
+
+/**
+ * @brief Extended DRX settings (AT+CEDRXS).
+ */
+typedef struct {
+    bool             enabled;   /**< false disables eDRX                    */
+    ec200_edrx_act_t act_type;  /**< Access technology the value applies to */
+    /** Requested eDRX cycle, a 4-bit string ("0101"); see 3GPP 24.008.     */
+    char             requested[EC200_EDRX_VALUE_STR_LEN];
+} ec200_edrx_config_t;
+
+/**
+ * @brief eDRX parameters actually in force (AT+CEDRXRDP).
+ *
+ * What the network granted, which may differ from what was requested.
+ * @p granted is empty when eDRX is not in use on the current cell.
+ */
+typedef struct {
+    ec200_edrx_act_t act_type;                          /**< Access tech    */
+    char requested[EC200_EDRX_VALUE_STR_LEN];           /**< Asked for      */
+    char granted[EC200_EDRX_VALUE_STR_LEN];             /**< Network's value*/
+    char paging_time_window[EC200_EDRX_VALUE_STR_LEN];  /**< Paging window  */
+} ec200_edrx_dynamic_t;
 
 /* -------------------------------------------------------------------------
  * Main library handle
@@ -434,6 +691,8 @@ typedef struct {
 
     /* --- Cached state ---------------------------------------------------- */
     bool     _initialised;            /**< Set by ec200_init()              */
+    uint8_t  _last_err_kind;          /**< 0 = none, 1 = +CME, 2 = +CMS     */
+    char     _last_err_text[EC200_MAX_ERR_TEXT_LEN]; /**< Verbose error text */
     bool     _ppp_data_mode;          /**< UART carries PPP frames; AT calls
                                            return EC200_ERR_BUSY            */
     int      _last_cme_error;         /**< Last +CME ERROR code             */

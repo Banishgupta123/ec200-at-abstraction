@@ -1,5 +1,4 @@
-build/
-build-*/
+build*/
 coverage/
 *.gcda
 *.gcno
@@ -21,3 +20,15 @@ examples/esp_idf/sdkconfig
 examples/esp_idf/sdkconfig.old
 examples/esp_idf/managed_components/
 examples/esp_idf/dependencies.lock
+hw_logs/
+
+# Local session transcripts (contain SIM identifiers and full chat history).
+# Kept for cross-machine continuity via OneDrive; never committed or pushed.
+.session/
+
+# Local test configuration (personal numbers etc.) - never committed.
+test_secrets.h
+
+# Python bytecode from the tools/ scripts
+__pycache__/
+*.pyc

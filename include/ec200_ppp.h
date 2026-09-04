@@ -68,8 +68,14 @@ ec200_status_t ec200_ppp_dial(ec200_handle_t *h, uint8_t cid);
  * On success the handle leaves data mode (the PPP session itself stays
  * alive on the modem — use ec200_ppp_resume() or ec200_ppp_hangup()).
  *
- * @return EC200_OK; EC200_ERR_PARAM if not in data mode; EC200_ERR_TIMEOUT
- *         (still in data mode) / EC200_ERR_IO otherwise.
+ * @return EC200_OK when the session was suspended cleanly.
+ *         EC200_ERR_MODULE / _CME / _CMS if the module answered with a
+ *         terminal error - typically NO CARRIER because the call had
+ *         already ended; the handle still leaves data mode in that case,
+ *         so it stays usable (do not call ec200_ppp_resume()).
+ *         EC200_ERR_PARAM if not in data mode; EC200_ERR_TIMEOUT or
+ *         EC200_ERR_IO leave the handle in data mode because the
+ *         module state is unknown.
  */
 ec200_status_t ec200_ppp_escape(ec200_handle_t *h);
 

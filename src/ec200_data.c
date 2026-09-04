@@ -134,16 +134,32 @@ ec200_status_t ec200_data_connect(ec200_handle_t    *h,
         return EC200_ERR_PARAM;
     }
 
-    ec200_status_t st = ec200_data_set_pdp(h, ctx);
+    /*
+     * On LTE the attach default bearer (usually cid 1) is already active
+     * right after registration, and re-defining or re-activating an active
+     * context makes the firmware error.  If a usable address is already
+     * assigned, the connection exists — use it.  An all-zero address means
+     * the context is defined but not actually up, so fall through to the
+     * full define/activate flow.
+     */
+    ec200_status_t st = ec200_data_get_ip(h, ctx->cid,
+                                          ctx->ip_addr, sizeof(ctx->ip_addr));
+    if (st == EC200_OK && strcmp(ctx->ip_addr, "0.0.0.0") != 0) {
+        return EC200_OK;
+    }
+
+    st = ec200_data_set_pdp(h, ctx);
     if (st != EC200_OK) {
         return st;
     }
 
-    st = ec200_data_activate(h, ctx->cid);
-    if (st != EC200_OK) {
-        return st;
-    }
+    ec200_status_t act = ec200_data_activate(h, ctx->cid);
 
-    return ec200_data_get_ip(h, ctx->cid,
-                             ctx->ip_addr, sizeof(ctx->ip_addr));
+    /* Re-query regardless: the module rejects activation of an already
+     * active context, which is not a failure if an address is assigned. */
+    st = ec200_data_get_ip(h, ctx->cid, ctx->ip_addr, sizeof(ctx->ip_addr));
+    if (st == EC200_OK && strcmp(ctx->ip_addr, "0.0.0.0") != 0) {
+        return EC200_OK;
+    }
+    return (act != EC200_OK) ? act : st;
 }

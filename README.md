@@ -158,6 +158,24 @@ body[body_len] = '\0';
 ec200_sms_set_format(&modem, EC200_SMS_FORMAT_TEXT);
 ec200_sms_send(&modem, "+1234567890", "Hello!");
 
+/* Receive SMS: ask for an index URC, then fetch each message it names */
+static void on_new_sms(const char *urc, void *ctx)
+{
+    ec200_sms_notification_t note;
+    if (ec200_sms_parse_notification(urc, &note) != EC200_OK) {
+        return;
+    }
+    ec200_sms_message_t msg;
+    if (ec200_sms_read((ec200_handle_t *)ctx, note.index, &msg) == EC200_OK) {
+        printf("SMS from %s: %s\n", msg.sender, msg.text);
+    }
+}
+
+const ec200_sms_cnmi_t cnmi = { 2, 1, 0, 0, 0 };
+ec200_sms_set_indication(&modem, &cnmi);
+ec200_at_register_urc(&modem, "+CMTI:", on_new_sms, &modem);
+/* ec200_at_poll_urc() below now delivers +CMTI to on_new_sms */
+
 /* MQTT publish (binary-safe: uses AT+QMTPUBEX) */
 ec200_mqtt_publish(&modem, 0, 1, EC200_MQTT_QOS1, false,
                    "sensors/t1", payload, payload_len);
@@ -178,16 +196,57 @@ ec200_at_poll_urc(&modem, 0);
 |---|---|
 | `ec200.h` | Init, IMEI, firmware, echo, CMEE, status strings |
 | `ec200_sim.h` | PIN status, enter PIN, IMSI, ICCID |
-| `ec200_network.h` | CREG/CGREG/CEREG, CSQ/QCSQ, COPS, wait-for-register |
-| `ec200_sms.h` | Set format, send, read, list, delete |
+| `ec200_network.h` | CREG/CGREG/CEREG, CSQ/QCSQ, COPS, QNWINFO, QSPN, CGATT, wait-for-register |
+| `ec200_sms.h` | Set format, send, read, list, delete, storage (CPMS), service centre (CSCA), store/send-stored (CMGW/CMSS), new-message indication (CNMI) |
 | `ec200_data.h` | CGDCONT, QICSGP auth, CGACT, CGPADDR, connect helper |
-| `ec200_tcpip.h` | QIOPEN, QISEND, QIRD, QICLOSE, QISTATE |
+| `ec200_tcpip.h` | QIOPEN, QISEND, QIRD, QICLOSE, QISTATE, DNS (QIDNSGIP), ping (QPING) |
 | `ec200_http.h` | QHTTPCFG, QHTTPURL, QHTTPGET, QHTTPPOST, QHTTPREAD |
 | `ec200_mqtt.h` | QMTOPEN, QMTCONN, QMTSUB, QMTPUBEX, QMTDISC, message callback |
 | `ec200_gnss.h` | QGPS start/stop/status, QGPSLOC, QGPSCFG NMEA types |
 | `ec200_power.h` | CFUN get/set/reset, QPOWD, QSCLK |
 | `ec200_ppp.h` | PPP dial-up control plane: dial, escape (+++), resume, hangup |
+| `ec200_file.h` | Modem UFS: upload/delete/exists/size/storage (cert storage) |
+| `ec200_ssl.h` | TLS context config (QSSLCFG): version, cipher, seclevel, certs |
+| `ec200_ssl_socket.h` | TLS client sockets (QSSLOPEN/SEND/RECV/CLOSE) |
+| `ec200_time.h` | Module clock, network time (QLTS/CTZU), NTP sync (QNTP) |
 | `ec200_at.h` | AT transaction primitives, raw I/O, URC registry |
+
+## TLS (HTTPS / MQTTS / secure sockets)
+
+Secure transport is a three-step setup — upload certs, configure an SSL
+context, then point a protocol at it:
+
+```c
+/* 1. Upload the CA (and, for mutual TLS, client cert+key) to the modem FS */
+ec200_file_upload(&modem, "ca.pem", ca_pem, ca_len, NULL);
+
+/* 2. Configure an SSL context */
+ec200_ssl_config_t ssl = {
+    .ctx_id      = 2,
+    .version     = EC200_SSL_VER_TLS1_2,
+    .ciphersuite = EC200_SSL_CIPHER_ALL,
+    .seclevel    = EC200_SSL_SECLEVEL_SERVER,   /* verify the server */
+    .cacert      = "ca.pem",
+};
+ec200_ssl_configure(&modem, &ssl);
+
+/* 3a. HTTPS */
+ec200_http_set_ssl_context(&modem, 2);
+ec200_http_set_url(&modem, "https://example.com/api");   /* then GET/POST */
+
+/* 3b. MQTTS */
+ec200_mqtt_config_t mq = { .host="broker", .port=8883,
+                           .use_tls=true, .ssl_ctx_id=2, /* ... */ };
+ec200_mqtt_open(&modem, &mq);
+
+/* 3c. Raw TLS socket */
+ec200_ssl_socket_open(&modem, 1 /*pdp*/, 2 /*ssl*/, 0 /*conn*/,
+                      "host", 443);
+```
+
+Security levels: `SECLEVEL_NONE` (encrypt only), `SECLEVEL_SERVER`
+(verify server against your CA), `SECLEVEL_MUTUAL` (also present a client
+cert+key). Certs live in the modem's filesystem and are referenced by name.
 
 ## PPP
 
@@ -262,7 +321,7 @@ library is pure C99 with no IDF API usage). Add it to your project's
 dependencies:
   ec200-at-abstraction:
     git: "https://github.com/Banishgupta123/ec200-at-abstraction.git"
-    version: "v1.1.0"
+    version: "v2.0.0"
 ```
 
 The IDF Component Manager fetches it on the next `idf.py build`; then just

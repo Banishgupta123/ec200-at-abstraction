@@ -146,14 +146,19 @@ static ec200_mqtt_config_t mqtt_cfg(void)
 void test_mqtt_open_async_ok(void)
 {
     ec200_mqtt_config_t cfg = mqtt_cfg();
+    lb_on_write("AT+QMTCFG=\"ssl\",0,0,0", "\r\nOK\r\n");
     lb_on_write("AT+QMTOPEN=0,\"broker.example.com\",1883",
                 "\r\nOK\r\n+QMTOPEN: 0,0\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_mqtt_open(&h, &cfg));
+    /* Regression: TLS must be explicitly disabled for plaintext opens so a
+     * previous MQTTS session cannot leave SSL enabled on the module. */
+    TEST_ASSERT_NOT_NULL(strstr(lb_tx_data(), "AT+QMTCFG=\"ssl\",0,0,0"));
 }
 
 void test_mqtt_open_pdp_error(void)
 {
     ec200_mqtt_config_t cfg = mqtt_cfg();
+    lb_on_write("AT+QMTCFG=\"ssl\"", "\r\nOK\r\n");
     lb_on_write("AT+QMTOPEN", "\r\nOK\r\n+QMTOPEN: 0,3\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_mqtt_open(&h, &cfg));
 }
@@ -277,9 +282,10 @@ void test_http_post_flow(void)
     ec200_http_response_t resp;
     TEST_ASSERT_EQUAL_INT(EC200_OK,
         ec200_http_post(&h, (const uint8_t *)"hello=world", 11,
-                        "application/x-www-form-urlencoded", 10000, &resp));
+                        EC200_HTTP_CT_URLENCODED, 10000, &resp));
     TEST_ASSERT_EQUAL_UINT16(200, resp.status_code);
-    TEST_ASSERT_NOT_NULL(strstr(lb_tx_data(), "contenttype"));
+    /* the numeric index, not a MIME string, must go on the wire */
+    TEST_ASSERT_NOT_NULL(strstr(lb_tx_data(), "\"contenttype\",0"));
 }
 
 void test_http_read_body_intact(void)
@@ -389,6 +395,358 @@ void test_sms_delete_all_validation(void)
 {
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_sms_delete_all(&h, 0));
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_sms_delete_all(&h, 5));
+}
+
+/* =========================================================================
+ * SMS storage (AT+CPMS)
+ * ========================================================================= */
+
+/* URC handler used by test_sms_notification_dispatched_as_urc(). */
+static void capture_cmti(const char *urc, void *ctx)
+{
+    (void)ec200_sms_parse_notification(urc, (ec200_sms_notification_t *)ctx);
+}
+
+void test_sms_set_storage_reports_usage(void)
+{
+    /* The set-form answers with six bare integers, used/total per area. */
+    lb_on_write("AT+CPMS=\"ME\",\"SM\",\"ME\"",
+                "\r\n+CPMS: 3,23,1,50,3,23\r\n\r\nOK\r\n");
+    ec200_sms_storage_t usage;
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_sms_set_storage(&h, EC200_SMS_MEM_ME, EC200_SMS_MEM_SM,
+                              EC200_SMS_MEM_ME, &usage));
+    TEST_ASSERT_EQUAL_UINT16(3,  usage.read_delete.used);
+    TEST_ASSERT_EQUAL_UINT16(23, usage.read_delete.total);
+    TEST_ASSERT_EQUAL_UINT16(1,  usage.write_send.used);
+    TEST_ASSERT_EQUAL_UINT16(50, usage.write_send.total);
+    TEST_ASSERT_EQUAL_UINT16(3,  usage.receive.used);
+    TEST_ASSERT_EQUAL_UINT16(23, usage.receive.total);
+}
+
+void test_sms_set_storage_discards_usage(void)
+{
+    lb_on_write("AT+CPMS=", "\r\n+CPMS: 0,23,0,23,0,23\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_sms_set_storage(&h, EC200_SMS_MEM_SM, EC200_SMS_MEM_SM,
+                              EC200_SMS_MEM_SM, NULL));
+}
+
+void test_sms_set_storage_validation(void)
+{
+    ec200_sms_storage_t usage;
+    /* Out-of-range enum in each of the three slots. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_set_storage(&h, (ec200_sms_mem_t)3, EC200_SMS_MEM_SM,
+                              EC200_SMS_MEM_SM, &usage));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_set_storage(&h, EC200_SMS_MEM_SM, (ec200_sms_mem_t)3,
+                              EC200_SMS_MEM_SM, &usage));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_set_storage(&h, EC200_SMS_MEM_SM, EC200_SMS_MEM_SM,
+                              (ec200_sms_mem_t)3, &usage));
+    /* "MT" is the ME+SM union: readable, but not a place to store. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_set_storage(&h, EC200_SMS_MEM_MT, EC200_SMS_MEM_MT,
+                              EC200_SMS_MEM_SM, &usage));
+    /* No response scripted -> the transaction times out. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT,
+        ec200_sms_set_storage(&h, EC200_SMS_MEM_SM, EC200_SMS_MEM_SM,
+                              EC200_SMS_MEM_SM, &usage));
+}
+
+void test_sms_get_storage_parses_query_form(void)
+{
+    /* The query-form interleaves the storage names with the counters. */
+    lb_on_write("AT+CPMS?",
+                "\r\n+CPMS: \"ME\",3,23,\"SM\",1,50,\"ME\",3,23\r\n\r\nOK\r\n");
+    ec200_sms_storage_t usage;
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_sms_get_storage(&h, &usage));
+    TEST_ASSERT_EQUAL_UINT16(3,  usage.read_delete.used);
+    TEST_ASSERT_EQUAL_UINT16(23, usage.read_delete.total);
+    TEST_ASSERT_EQUAL_UINT16(1,  usage.write_send.used);
+    TEST_ASSERT_EQUAL_UINT16(50, usage.write_send.total);
+    TEST_ASSERT_EQUAL_UINT16(3,  usage.receive.used);
+    TEST_ASSERT_EQUAL_UINT16(23, usage.receive.total);
+}
+
+void test_sms_get_storage_failures(void)
+{
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_sms_get_storage(&h, NULL));
+
+    ec200_sms_storage_t usage;
+    /* Nothing scripted -> timeout. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT,
+        ec200_sms_get_storage(&h, &usage));
+}
+
+void test_sms_storage_malformed_usage(void)
+{
+    ec200_sms_storage_t usage;
+
+    /* "used" field missing entirely. */
+    lb_on_write("AT+CPMS?", "\r\n+CPMS: \"ME\"\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_get_storage(&h, &usage));
+
+    /* "total" present but not numeric. */
+    lb_on_write("AT+CPMS=", "\r\n+CPMS: 3,x,1,50,3,23\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_set_storage(&h, EC200_SMS_MEM_ME, EC200_SMS_MEM_SM,
+                              EC200_SMS_MEM_ME, &usage));
+
+    /* A negative counter is not a usable occupancy — in either position. */
+    lb_on_write("AT+CPMS=", "\r\n+CPMS: -1,23,1,50,3,23\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_set_storage(&h, EC200_SMS_MEM_ME, EC200_SMS_MEM_SM,
+                              EC200_SMS_MEM_ME, &usage));
+
+    lb_on_write("AT+CPMS=", "\r\n+CPMS: 3,-23,1,50,3,23\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_set_storage(&h, EC200_SMS_MEM_ME, EC200_SMS_MEM_SM,
+                              EC200_SMS_MEM_ME, &usage));
+}
+
+/* =========================================================================
+ * SMS service centre (AT+CSCA)
+ * ========================================================================= */
+
+void test_sms_smsc_set_and_get(void)
+{
+    lb_on_write("AT+CSCA=\"+447700900123\"", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_sms_set_smsc(&h, "+447700900123"));
+
+    lb_on_write("AT+CSCA?",
+                "\r\n+CSCA: \"+447700900123\",145\r\n\r\nOK\r\n");
+    char smsc[EC200_MAX_PHONE_NUM_LEN];
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_sms_get_smsc(&h, smsc, sizeof(smsc)));
+    TEST_ASSERT_EQUAL_STRING("+447700900123", smsc);
+}
+
+void test_sms_smsc_failures(void)
+{
+    char smsc[EC200_MAX_PHONE_NUM_LEN];
+
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_sms_set_smsc(&h, NULL));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_sms_set_smsc(&h, ""));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_set_smsc(&h, "+123456789012345678901234"));
+
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_get_smsc(&h, NULL, sizeof(smsc)));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM, ec200_sms_get_smsc(&h, smsc, 0));
+
+    /* Nothing scripted -> timeout. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT,
+        ec200_sms_get_smsc(&h, smsc, sizeof(smsc)));
+
+    /* Reply without the quoted address. */
+    lb_on_write("AT+CSCA?", "\r\n+CSCA: 145\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_get_smsc(&h, smsc, sizeof(smsc)));
+
+    /* Opening quote with no closing quote. */
+    lb_on_write("AT+CSCA?", "\r\n+CSCA: \"+4477\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_get_smsc(&h, smsc, sizeof(smsc)));
+
+    /* An address that does not fit is reported, never truncated: a
+     * truncated number written back would misconfigure the module. */
+    lb_on_write("AT+CSCA?", "\r\n+CSCA: \"+447700900123\",145\r\n\r\nOK\r\n");
+    char tiny[8];
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_OVERFLOW,
+        ec200_sms_get_smsc(&h, tiny, sizeof(tiny)));
+}
+
+/* =========================================================================
+ * Store and send-from-storage (AT+CMGW / AT+CMSS)
+ * ========================================================================= */
+
+void test_sms_write_then_send_stored(void)
+{
+    lb_on_write("AT+CMGW=\"+1234567890\"", "\r\n> ");
+    lb_on_write("Stored body", "\r\n+CMGW: 4\r\n\r\nOK\r\n");
+    int index = 0;
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_sms_write(&h, "+1234567890", "Stored body", &index));
+    TEST_ASSERT_EQUAL_INT(4, index);
+    TEST_ASSERT_NOT_NULL(strchr(lb_tx_data(), '\x1a'));
+
+    lb_on_write("AT+CMSS=4", "\r\n+CMSS: 17\r\n\r\nOK\r\n");
+    int mr = 0;
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_sms_send_stored(&h, 4, &mr));
+    TEST_ASSERT_EQUAL_INT(17, mr);
+}
+
+void test_sms_write_and_send_stored_discard_values(void)
+{
+    lb_on_write("AT+CMGW=", "\r\n> ");
+    lb_on_write("body", "\r\n+CMGW: 4\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_sms_write(&h, "+123", "body", NULL));
+
+    lb_on_write("AT+CMSS=4", "\r\n+CMSS: 17\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_sms_send_stored(&h, 4, NULL));
+}
+
+void test_sms_write_and_send_stored_unparsable_value(void)
+{
+    /* The reported number is informational: the message is still stored /
+     * sent, so a non-numeric payload yields -1 rather than an error. */
+    lb_on_write("AT+CMGW=", "\r\n> ");
+    lb_on_write("body", "\r\n+CMGW: none\r\n\r\nOK\r\n");
+    int index = 99;
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_sms_write(&h, "+123", "body", &index));
+    TEST_ASSERT_EQUAL_INT(-1, index);
+
+    lb_on_write("AT+CMSS=4", "\r\n+CMSS: none\r\n\r\nOK\r\n");
+    int mr = 99;
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_sms_send_stored(&h, 4, &mr));
+    TEST_ASSERT_EQUAL_INT(-1, mr);
+}
+
+void test_sms_write_and_send_stored_failures(void)
+{
+    /* ec200_sms_write() shares its validation with ec200_sms_send(). */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_write(&h, NULL, "hi", NULL));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_write(&h, "+123", "bad\x1amessage", NULL));
+
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_send_stored(&h, -1, NULL));
+    /* Nothing scripted -> timeout. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT,
+        ec200_sms_send_stored(&h, 2, NULL));
+}
+
+/* =========================================================================
+ * New-message indication (AT+CNMI)
+ * ========================================================================= */
+
+void test_sms_indication_set_and_get(void)
+{
+    lb_on_write("AT+CNMI=2,1,0,0,0", "\r\nOK\r\n");
+    const ec200_sms_cnmi_t cfg = { 2, 1, 0, 0, 0 };
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_sms_set_indication(&h, &cfg));
+
+    lb_on_write("AT+CNMI?", "\r\n+CNMI: 2,1,0,0,0\r\n\r\nOK\r\n");
+    ec200_sms_cnmi_t got;
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_sms_get_indication(&h, &got));
+    TEST_ASSERT_EQUAL_UINT8(2, got.mode);
+    TEST_ASSERT_EQUAL_UINT8(1, got.mt);
+    TEST_ASSERT_EQUAL_UINT8(0, got.bm);
+    TEST_ASSERT_EQUAL_UINT8(0, got.ds);
+    TEST_ASSERT_EQUAL_UINT8(0, got.bfr);
+}
+
+void test_sms_indication_validation(void)
+{
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_set_indication(&h, NULL));
+
+    /* One arm per range check. */
+    const ec200_sms_cnmi_t bad[] = {
+        { 3, 1, 0, 0, 0 },
+        { 2, 4, 0, 0, 0 },
+        { 2, 1, 4, 0, 0 },
+        { 2, 1, 0, 3, 0 },
+        { 2, 1, 0, 0, 2 },
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+            ec200_sms_set_indication(&h, &bad[i]));
+    }
+}
+
+void test_sms_get_indication_failures(void)
+{
+    ec200_sms_cnmi_t cfg;
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_get_indication(&h, NULL));
+
+    /* Nothing scripted -> timeout. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT,
+        ec200_sms_get_indication(&h, &cfg));
+
+    /* Short of the five fields. */
+    lb_on_write("AT+CNMI?", "\r\n+CNMI: 2,1\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_get_indication(&h, &cfg));
+
+    /* Fields that cannot be a CNMI setting, above and below the range. */
+    lb_on_write("AT+CNMI?", "\r\n+CNMI: 2,1,0,0,300\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_get_indication(&h, &cfg));
+
+    lb_on_write("AT+CNMI?", "\r\n+CNMI: 2,1,0,0,-1\r\n\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_get_indication(&h, &cfg));
+}
+
+void test_sms_parse_notification(void)
+{
+    ec200_sms_notification_t note;
+
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_sms_parse_notification("+CMTI: \"ME\",3", &note));
+    TEST_ASSERT_EQUAL_INT(EC200_SMS_MEM_ME, note.mem);
+    TEST_ASSERT_EQUAL_INT(3, note.index);
+
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_sms_parse_notification("+CMTI: \"SM\",12", &note));
+    TEST_ASSERT_EQUAL_INT(EC200_SMS_MEM_SM, note.mem);
+    TEST_ASSERT_EQUAL_INT(12, note.index);
+
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_sms_parse_notification("+CMTI: \"MT\",1", &note));
+    TEST_ASSERT_EQUAL_INT(EC200_SMS_MEM_MT, note.mem);
+}
+
+void test_sms_parse_notification_failures(void)
+{
+    ec200_sms_notification_t note;
+
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_parse_notification(NULL, &note));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_sms_parse_notification("+CMTI: \"ME\",3", NULL));
+
+    /* A different URC must not be mistaken for a notification. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_parse_notification("+CMGS: 3", &note));
+    /* Storage name missing. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_parse_notification("+CMTI: ME,3", &note));
+    /* Unknown storage name. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_parse_notification("+CMTI: \"XX\",3", &note));
+    /* Index missing / not numeric. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_parse_notification("+CMTI: \"ME\"", &note));
+    /* A negative index is not a storage slot. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE,
+        ec200_sms_parse_notification("+CMTI: \"ME\",-1", &note));
+}
+
+void test_sms_notification_dispatched_as_urc(void)
+{
+    /* End-to-end: the +CMTI URC reaches a registered handler, and the
+     * handler turns the line into a storage index. */
+    static ec200_sms_notification_t seen;
+    seen.index = -1;
+
+    TEST_ASSERT_EQUAL_INT(EC200_OK,
+        ec200_at_register_urc(&h, "+CMTI:", capture_cmti, &seen));
+
+    lb_feed("\r\n+CMTI: \"ME\",7\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_at_poll_urc(&h, 100));
+
+    TEST_ASSERT_EQUAL_INT(7, seen.index);
+    TEST_ASSERT_EQUAL_INT(EC200_SMS_MEM_ME, seen.mem);
 }
 
 /* =========================================================================
@@ -649,6 +1007,7 @@ void test_tcp_bytes_available_param_and_failures(void)
 void test_mqtt_result_parse_error(void)
 {
     ec200_mqtt_config_t cfg = mqtt_cfg();
+    lb_on_write("AT+QMTCFG=\"ssl\"", "\r\nOK\r\n");
     lb_on_write("AT+QMTOPEN", "\r\nOK\r\n+QMTOPEN: 0\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARSE, ec200_mqtt_open(&h, &cfg));
 }
@@ -657,6 +1016,7 @@ void test_mqtt_command_failure_paths(void)
 {
     ec200_mqtt_config_t cfg = mqtt_cfg();
 
+    lb_on_write("AT+QMTCFG=\"ssl\"", "\r\nOK\r\n");
     lb_on_write("AT+QMTOPEN", "\r\nERROR\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_mqtt_open(&h, &cfg));
 
@@ -805,41 +1165,54 @@ void test_http_post_param_and_failures(void)
     const uint8_t body[4] = "abc";
 
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
-        ec200_http_post(&h, NULL, 4, NULL, 1000, &resp));
+        ec200_http_post(&h, NULL, 4, EC200_HTTP_CT_URLENCODED, 1000, &resp));
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
-        ec200_http_post(&h, body, 0, NULL, 1000, &resp));
+        ec200_http_post(&h, body, 0, EC200_HTTP_CT_URLENCODED, 1000, &resp));
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
-        ec200_http_post(&h, body, 70000, NULL, 1000, &resp));
+        ec200_http_post(&h, body, 70000, EC200_HTTP_CT_URLENCODED, 1000,
+                        &resp));
+    /* out-of-range content type (both arms of the range check) */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_http_post(&h, body, 3, (ec200_http_content_type_t)9, 1000,
+                        &resp));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_http_post(&h, body, 3, (ec200_http_content_type_t)-1, 1000,
+                        &resp));
 
     /* content-type configuration fails */
-    lb_on_write("contenttype", "\r\nERROR\r\n");
+    lb_on_write("\"contenttype\",1", "\r\nERROR\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE,
-        ec200_http_post(&h, body, 3, "text/plain", 1000, &resp));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_TEXT_PLAIN, 1000, &resp));
 
     /* CONNECT refused */
+    SETUP_MODEM(&h);
+    lb_on_write("contenttype", "\r\nOK\r\n");
     lb_on_write("AT+QHTTPPOST", "\r\nERROR\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE,
-        ec200_http_post(&h, body, 3, NULL, 1000, &resp));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_URLENCODED, 1000, &resp));
 
     /* Body write fails */
     SETUP_MODEM(&h);
+    lb_on_write("contenttype", "\r\nOK\r\n");
     lb_on_write("AT+QHTTPPOST", "\r\nCONNECT\r\n");
-    lb_fail_write_after(1);
+    lb_fail_write_after(2);
     TEST_ASSERT_EQUAL_INT(EC200_ERR_IO,
-        ec200_http_post(&h, body, 3, NULL, 1000, &resp));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_URLENCODED, 1000, &resp));
 
     /* No OK after the body */
     SETUP_MODEM(&h);
+    lb_on_write("contenttype", "\r\nOK\r\n");
     lb_on_write("AT+QHTTPPOST", "\r\nCONNECT\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT,
-        ec200_http_post(&h, body, 3, NULL, 300, &resp));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_URLENCODED, 300, &resp));
 
     /* OK but no result URC */
     SETUP_MODEM(&h);
+    lb_on_write("contenttype", "\r\nOK\r\n");
     lb_on_write("AT+QHTTPPOST", "\r\nCONNECT\r\n");
     lb_on_write("abc", "\r\nOK\r\n");
     TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT,
-        ec200_http_post(&h, body, 3, NULL, 300, &resp));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_URLENCODED, 300, &resp));
 }
 
 void test_http_read_param_and_failures(void)
@@ -1165,7 +1538,7 @@ void test_branch_http_param_arms(void)
     /* NULL response summary for POST */
     const uint8_t body[4] = "abc";
     TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
-        ec200_http_post(&h, body, 3, NULL, 1000, NULL));
+        ec200_http_post(&h, body, 3, EC200_HTTP_CT_URLENCODED, 1000, NULL));
 }
 
 void test_branch_http_read_io_error_mid_body(void)
@@ -1365,6 +1738,74 @@ void test_ppp_escape_failures_and_null_args(void)
 
 /* ========================================================================= */
 
+void test_tcp_open_rejects_overlong_host(void)
+{
+    static char toolong[EC200_MAX_URL_LEN + 8];
+    memset(toolong, 'h', sizeof(toolong) - 1U);
+    toolong[sizeof(toolong) - 1U] = 0;
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_PARAM,
+        ec200_tcp_open(&h, 1, 0, EC200_SOCK_TCP, toolong, 80,
+                       EC200_ACCESS_BUFFER));
+}
+
+void test_ppp_escape_no_carrier_does_not_wedge(void)
+{
+    /* Regression (found on hardware): when the data call has already
+     * ended the module answers "+++" with NO CARRIER.  The handle used
+     * to stay in data mode, so every later AT call returned BUSY and
+     * the handle was permanently unusable. */
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    TEST_ASSERT_TRUE(ec200_ppp_in_data_mode(&h));
+
+    lb_on_write("+++", "\r\nNO CARRIER\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_MODULE, ec200_ppp_escape(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));   /* not wedged */
+
+    /* The handle must be usable again straight away. */
+    lb_on_write("AT\r", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_check_at(&h));
+
+    /* A +CME / +CMS terminal answer must clear data mode too. */
+    SETUP_MODEM(&h);
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    lb_on_write("+++", "\r\n+CME ERROR: 3\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CME, ec200_ppp_escape(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));
+
+    SETUP_MODEM(&h);
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    lb_on_write("+++", "\r\n+CMS ERROR: 500\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_CMS, ec200_ppp_escape(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));
+}
+
+void test_ppp_disconnect_after_carrier_loss(void)
+{
+    /* disconnect must still issue ATH when escape reports the session
+     * is already gone. */
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    lb_on_write("+++", "\r\nNO CARRIER\r\n");
+    lb_on_write("ATH", "\r\nOK\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_disconnect(&h));
+    TEST_ASSERT_FALSE(ec200_ppp_in_data_mode(&h));
+}
+
+void test_ppp_escape_timeout_stays_in_data_mode(void)
+{
+    /* Timeout means the module state is unknown, so the handle must
+     * NOT silently claim command mode. */
+    lb_on_write("ATD*99***1#", "\r\nCONNECT\r\n");
+    TEST_ASSERT_EQUAL_INT(EC200_OK, ec200_ppp_dial(&h, 1));
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT, ec200_ppp_escape(&h));
+    TEST_ASSERT_TRUE(ec200_ppp_in_data_mode(&h));
+    /* ...and disconnect refuses rather than pretending. */
+    TEST_ASSERT_EQUAL_INT(EC200_ERR_TIMEOUT, ec200_ppp_disconnect(&h));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -1454,5 +1895,27 @@ int main(void)
     RUN_TEST(test_ppp_resume_session_gone);
     RUN_TEST(test_ppp_dial_failures);
     RUN_TEST(test_ppp_escape_failures_and_null_args);
+    RUN_TEST(test_tcp_open_rejects_overlong_host);
+    RUN_TEST(test_ppp_escape_no_carrier_does_not_wedge);
+    RUN_TEST(test_ppp_disconnect_after_carrier_loss);
+    RUN_TEST(test_ppp_escape_timeout_stays_in_data_mode);
+    RUN_TEST(test_sms_set_storage_reports_usage);
+    RUN_TEST(test_sms_set_storage_discards_usage);
+    RUN_TEST(test_sms_set_storage_validation);
+    RUN_TEST(test_sms_get_storage_parses_query_form);
+    RUN_TEST(test_sms_get_storage_failures);
+    RUN_TEST(test_sms_storage_malformed_usage);
+    RUN_TEST(test_sms_smsc_set_and_get);
+    RUN_TEST(test_sms_smsc_failures);
+    RUN_TEST(test_sms_write_then_send_stored);
+    RUN_TEST(test_sms_write_and_send_stored_discard_values);
+    RUN_TEST(test_sms_write_and_send_stored_unparsable_value);
+    RUN_TEST(test_sms_write_and_send_stored_failures);
+    RUN_TEST(test_sms_indication_set_and_get);
+    RUN_TEST(test_sms_indication_validation);
+    RUN_TEST(test_sms_get_indication_failures);
+    RUN_TEST(test_sms_parse_notification);
+    RUN_TEST(test_sms_parse_notification_failures);
+    RUN_TEST(test_sms_notification_dispatched_as_urc);
     return UNITY_END();
 }

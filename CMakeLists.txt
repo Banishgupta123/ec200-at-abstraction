@@ -25,6 +25,10 @@ if(ESP_PLATFORM)
             src/ec200_gnss.c
             src/ec200_power.c
             src/ec200_ppp.c
+            src/ec200_file.c
+            src/ec200_ssl.c
+            src/ec200_ssl_socket.c
+            src/ec200_time.c
         INCLUDE_DIRS include
     )
     return()
@@ -94,6 +98,10 @@ add_library(ec200 STATIC
     src/ec200_gnss.c
     src/ec200_power.c
     src/ec200_ppp.c
+    src/ec200_file.c
+    src/ec200_ssl.c
+    src/ec200_ssl_socket.c
+    src/ec200_time.c
 )
 target_include_directories(ec200 PUBLIC include)
 ec200_strict_warnings(ec200)
@@ -101,6 +109,14 @@ ec200_strict_warnings(ec200)
 # The library itself gets the harshest conversion checking.
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ec200 PRIVATE -Wconversion)
+endif()
+
+# Bound the worst-case stack frame: this library runs on MCUs where a task
+# stack is often only a few KB, so a large local buffer is a real hazard
+# (see EC200_SMS_*_BUF_LEN).  With -Werror this fails the build rather than
+# letting a frame grow unnoticed.
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(ec200 PRIVATE -Wstack-usage=1280)
 endif()
 
 if(EC200_ANALYZER AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
@@ -147,6 +163,8 @@ if(EC200_BUILD_TESTS)
     add_ec200_test(test_at_engine)
     add_ec200_test(test_modules)
     add_ec200_test(test_protocols)
+    add_ec200_test(test_secure)
+    add_ec200_test(test_netdiag)
 
     # -- CMock-based transport-contract suite ------------------------------
     find_program(RUBY_EXECUTABLE ruby HINTS "C:/Ruby32-x64/bin")
@@ -202,6 +220,26 @@ if(CPPCHECK_EXECUTABLE)
                 ${CMAKE_CURRENT_SOURCE_DIR}/src
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running cppcheck over src/"
+        VERBATIM
+    )
+endif()
+
+# ---------------------------------------------------------------------------
+# Static analysis: clang-tidy target (checks configured in .clang-tidy)
+# ---------------------------------------------------------------------------
+# NOTE: on Windows/MinGW clang may fail to parse the platform's own stdlib.h;
+# that is an environment limitation, not a finding.  CI runs this on Linux.
+find_program(CLANG_TIDY_EXECUTABLE clang-tidy)
+if(CLANG_TIDY_EXECUTABLE)
+    file(GLOB EC200_TIDY_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
+    add_custom_target(clang-tidy
+        COMMAND ${CLANG_TIDY_EXECUTABLE}
+                --quiet
+                -p ${CMAKE_BINARY_DIR}
+                --extra-arg=-Wno-unknown-warning-option
+                ${EC200_TIDY_SOURCES}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running clang-tidy over src/"
         VERBATIM
     )
 endif()

@@ -102,8 +102,30 @@ ec200_status_t ec200_mqtt_open(ec200_handle_t          *h,
     if (!cfg || cfg->host[0] == '\0') {
         return EC200_ERR_PARAM;
     }
+    if (cfg->use_tls && cfg->ssl_ctx_id > 5U) {
+        return EC200_ERR_PARAM;
+    }
 
     char cmd[EC200_MAX_URL_LEN + 32];
+
+    /*
+     * Always state the TLS setting explicitly
+     * (AT+QMTCFG="ssl",<client_idx>,<enable>,<ctx_id>).  The module keeps
+     * this setting between sessions, so a previous MQTTS connection would
+     * otherwise leave TLS enabled and break a later plaintext open.
+     */
+    (void)snprintf(cmd, sizeof(cmd),
+                   "AT+QMTCFG=\"ssl\",%u,%u,%u",
+                   (unsigned)cfg->tcp_connect_id,
+                   cfg->use_tls ? 1U : 0U,
+                   (unsigned)cfg->ssl_ctx_id);
+    {
+        ec200_status_t sst = ec200_at_send(h, cmd, NULL, 0,
+                                           EC200_AT_TIMEOUT_DEFAULT);
+        if (sst != EC200_OK) {
+            return sst;
+        }
+    }
     (void)snprintf(cmd, sizeof(cmd),
                    "AT+QMTOPEN=%u,\"%s\",%u",
                    (unsigned)cfg->tcp_connect_id,

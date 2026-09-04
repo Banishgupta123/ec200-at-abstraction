@@ -26,8 +26,9 @@ from the repository root and open `docs/html/index.html`.
 14. [GNSS](#gnss) — `ec200_gnss.h`
 15. [Power](#power) — `ec200_power.h`
 16. [PPP Control Plane](#ppp-control-plane) — `ec200_ppp.h`
-17. [Error Handling](#error-handling)
-18. [Threading Model](#threading-model)
+17. [TLS: files, SSL, secure sockets](#tls) — `ec200_file.h` / `ec200_ssl.h` / `ec200_ssl_socket.h`
+18. [Error Handling](#error-handling)
+19. [Threading Model](#threading-model)
 
 ---
 
@@ -289,7 +290,23 @@ ec200_status_t ec200_data_connect(ec200_handle_t *h, ec200_pdp_context_t *ctx);
 
 When `ctx->username` is non-empty, `set_pdp` also issues
 `AT+QICSGP` with PAP/CHAP authentication so the credentials take effect.
-`data_connect` = set_pdp → activate → get_ip (result in `ctx->ip_addr`).
+
+`data_connect` = get_ip → (if the context is already up, return) → set_pdp →
+activate → get_ip. The result lands in `ctx->ip_addr`.
+
+The initial probe exists because on LTE the attach bearer for cid 1 is
+usually active before any `AT+CGDCONT` is issued, and re-defining a live
+context fails on the module.
+
+> **`data_connect` does not apply your APN to an already-active context.**
+> If the first `get_ip` returns an address other than `0.0.0.0`, the helper
+> returns `EC200_OK` without sending `AT+CGDCONT`, so `ctx->apn`, `ctx->type`
+> and any PAP/CHAP credentials are ignored and the session runs on the APN
+> the context already had. To force a specific APN, call `data_deactivate`
+> first, or drive `set_pdp` → `activate` yourself.
+>
+> The "already up" test compares against the IPv4 zero address only, so an
+> inactive IPv6 or IPv4v6 context may not be detected as down.
 
 ## TCP/IP
 
@@ -322,7 +339,8 @@ ec200_status_t ec200_http_set_url(ec200_handle_t *h, const char *url);
 ec200_status_t ec200_http_get(ec200_handle_t *h, uint32_t timeout_ms,
                               ec200_http_response_t *resp);
 ec200_status_t ec200_http_post(ec200_handle_t *h, const uint8_t *body,
-                               uint32_t body_len, const char *content_type,
+                               uint32_t body_len,
+                               ec200_http_content_type_t content_type,
                                uint32_t timeout_ms, ec200_http_response_t *resp);
 ec200_status_t ec200_http_read(ec200_handle_t *h, uint8_t *buf, size_t buf_sz,
                                uint32_t *bytes_read, uint32_t timeout_ms);
@@ -330,7 +348,9 @@ ec200_status_t ec200_http_stop(ec200_handle_t *h);
 ```
 
 GET/POST are asynchronous (`OK`, then `+QHTTPGET:`/`+QHTTPPOST:` URC) —
-handled internally. `http_read` streams the body between `CONNECT` and the
+handled internally. `content_type` is a numeric `ec200_http_content_type_t`
+(the EC200U's `AT+QHTTPCFG="contenttype"` takes an index 0–4, **not** a MIME
+string). `http_read` streams the body between `CONNECT` and the
 trailing `OK`; if the buffer fills, the remainder is drained and
 `EC200_ERR_OVERFLOW` is returned with `bytes_read == buf_sz` (reserve one
 byte yourself if you want to NUL-terminate).
@@ -407,6 +427,49 @@ While the handle is in data mode every AT transaction API returns
 performs the `+++` sequence with the required ~1.1 s guard silences (quiesce
 your PPP stack first) and blocks for at least 2.2 s. A failed dial reports
 `EC200_ERR_MODULE` (`NO CARRIER`/`ERROR`). CMUX is not supported.
+
+## TLS
+
+Secure transport (HTTPS, MQTTS, TLS sockets) shares one flow: upload
+certificates to the modem UFS, configure an SSL context, then reference the
+context id from the protocol.
+
+```c
+/* Filesystem (ec200_file.h) */
+ec200_status_t ec200_file_upload(ec200_handle_t *h, const char *name,
+                                 const uint8_t *data, uint32_t len,
+                                 uint16_t *checksum);
+ec200_status_t ec200_file_delete (ec200_handle_t *h, const char *name);
+ec200_status_t ec200_file_exists (ec200_handle_t *h, const char *name, bool *exists);
+ec200_status_t ec200_file_size   (ec200_handle_t *h, const char *name, uint32_t *size);
+ec200_status_t ec200_file_storage(ec200_handle_t *h, ec200_file_storage_t *st);
+
+/* SSL context (ec200_ssl.h) */
+ec200_status_t ec200_ssl_configure   (ec200_handle_t *h, const ec200_ssl_config_t *cfg);
+ec200_status_t ec200_ssl_set_seclevel(ec200_handle_t *h, uint8_t ctx_id,
+                                      ec200_ssl_seclevel_t level);
+
+/* HTTPS / MQTTS wiring */
+ec200_status_t ec200_http_set_ssl_context(ec200_handle_t *h, uint8_t ssl_ctx);
+/* ec200_mqtt_config_t: set .use_tls = true and .ssl_ctx_id before mqtt_open */
+
+/* TLS sockets (ec200_ssl_socket.h) */
+ec200_status_t ec200_ssl_socket_open (ec200_handle_t *h, uint8_t pdp_ctx,
+                                      uint8_t ssl_ctx, uint8_t conn_id,
+                                      const char *host, uint16_t port);
+ec200_status_t ec200_ssl_socket_send (ec200_handle_t *h, uint8_t conn_id,
+                                      const uint8_t *data, uint16_t len);
+ec200_status_t ec200_ssl_socket_recv (ec200_handle_t *h, uint8_t conn_id,
+                                      uint8_t *buf, uint16_t max_len,
+                                      uint16_t *bytes_read, uint32_t timeout_ms);
+ec200_status_t ec200_ssl_socket_close(ec200_handle_t *h, uint8_t conn_id);
+```
+
+`ec200_ssl_config_t.seclevel` selects `NONE` (encrypt only), `SERVER`
+(verify server against `cacert`), or `MUTUAL` (also present
+`clientcert`+`clientkey`). Cert fields are **filenames** in the modem UFS,
+uploaded first with `ec200_file_upload()`. `ciphersuite` is
+`EC200_SSL_CIPHER_ALL` or a specific `0xXXXX` value.
 
 ## Error Handling
 
