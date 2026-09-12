@@ -1,5 +1,7 @@
 # ec200-at-abstraction
 
+[![CI](https://github.com/Banishgupta123/ec200-at-abstraction/actions/workflows/ci.yml/badge.svg)](https://github.com/Banishgupta123/ec200-at-abstraction/actions/workflows/ci.yml)
+
 A platform-independent abstraction layer for **Quectel EC200U series** cellular modules.
 
 ## Overview
