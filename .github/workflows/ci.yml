@@ -73,7 +73,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        idf_version: ["v5.2.2", "latest"]
+        # v5.2.2 proves the pre-5.3 "driver" component path still builds;
+        # v6.1 is the version developed against; latest catches regressions.
+        idf_version: ["v5.2.2", "v6.1", "latest"]
     steps:
       - uses: actions/checkout@v4
 
