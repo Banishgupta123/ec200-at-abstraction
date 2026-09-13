@@ -264,7 +264,7 @@ ec200_status_t ec200_sms_read(ec200_handle_t      *h,
         return st;
     }
 
-    char *hdr = strstr(resp, "+CMGR:");
+    const char *hdr = strstr(resp, "+CMGR:");
     if (hdr == NULL) {
         return EC200_ERR_PARSE; /* empty slot or unexpected format */
     }
@@ -320,7 +320,7 @@ ec200_status_t ec200_sms_list(ec200_handle_t      *h,
     }
 
     /* Parse lines: +CMGL: <idx>,...\n<text>\n... */
-    char *line = resp;
+    const char *line = resp;
     while (*line && *count_out < max_msgs) {
         if (strncmp(line, "+CMGL:", 6) == 0) {
             ec200_sms_message_t *m = &msgs[*count_out];
