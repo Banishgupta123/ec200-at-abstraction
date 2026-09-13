@@ -335,6 +335,22 @@ From `docs/DEVELOPMENT.md`. The library aims to wrap the full EC200U AT set.
 - **G3. PPP carrying IP traffic.** The control plane is hardware-proven end to
   end (dial → data mode → BUSY → escape → hangup). Actual IP traffic needs a
   host PPP stack (lwIP PPPoS) and remains unproven.
+- **G4. Nordic / Zephyr example — blocked on hardware.** The library should
+  port cleanly (Cortex-M, 32-bit `int`, no IDF dependency), and nRF52840 /
+  nRF5340 have RAM to spare. Deliberately **not** written until there is a rig
+  to verify it on: an untested example is worse than none. Two things a port
+  must get right, both documented on the wiki's *Porting* page:
+  - Zephyr's `uart_poll_in()` returns `-1` when no character is available.
+    Wired straight through, that violates the read contract (`0` = timeout,
+    `<0` = fatal only) and makes every ordinary timeout look like a dead UART.
+    Use an interrupt/async UART with a ring buffer returning `0` instead.
+  - GNSS is the only module needing float `sscanf`
+    ([src/ec200_gnss.c:71](src/ec200_gnss.c#L71), `%f`); on Zephyr that needs
+    `CONFIG_PICOLIBC_IO_FLOAT` or newlib's float scanf. Not calling
+    `ec200_gnss_*` drops the object entirely.
+
+  The nRF9160/nRF9151 are a poor fit regardless — they have an integrated
+  LTE-M modem and would use `nrf_modem`, not an external EC200U.
 
 ---
 
